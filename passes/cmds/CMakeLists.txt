@@ -222,3 +222,6 @@ yosys_pass(symfpu
 	LIBRARIES
 		symfpu
 )
+yosys_pass(cellfilter
+	cellfilter.cc
+)
