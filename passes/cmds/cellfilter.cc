@@ -4,8 +4,13 @@
 #include "kernel/log.h"
 
 #include <algorithm>
+#include <cerrno>
+#include <climits>
+#include <cstdlib>
 #include <deque>
 #include <fstream>
+#include <map>
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -95,7 +100,6 @@ struct GraphCell {
 	RTLIL::Cell *cell = nullptr;
 	NodeType node_type = NodeType::NONE;
 	bool in_graph = false;
-	std::string src_line;
 	std::vector<PortId> inputs;
 	std::vector<PortId> outputs;
 
@@ -114,6 +118,41 @@ struct GraphConnection {
 	int bit_count = 0;
 };
 
+struct CellGraphFilterOptions {
+	int top_k = 0;
+
+	bool filtered() const
+	{
+		return top_k > 0;
+	}
+};
+
+struct CellRegion {
+	int id = -1;
+	std::vector<GraphCellId> edge_cells;
+	std::vector<GraphCellId> key_cells;
+	pool<std::pair<int, int>> upstream_boundaries;
+	pool<std::pair<int, int>> downstream_boundaries;
+};
+
+struct ViewConnection {
+	PortId src = INVALID_PORT_ID;
+	PortId dst = INVALID_PORT_ID;
+	int bit_count = 0;
+	bool collapsed = false;
+	std::vector<GraphCellId> hidden_cells;
+};
+
+struct CellGraphView {
+	pool<GraphCellId> visible_cells;
+	pool<PortId> visible_module_ports;
+	std::vector<ViewConnection> connections;
+	std::vector<CellRegion> regions;
+
+	int visible_edge_cell_count = 0;
+	int hidden_edge_cell_count = 0;
+};
+
 struct CellGraph {
 	RTLIL::Module *module = nullptr;
 	SigMap sigmap;
@@ -130,7 +169,8 @@ struct CellGraph {
 	explicit CellGraph(RTLIL::Module *module) : module(module), sigmap(module) {}
 
 	void build();
-	void dump_dot(std::ostream &f, int module_index) const;
+	CellGraphView create_view(const CellGraphFilterOptions &options) const;
+	void dump_dot(std::ostream &f, int module_index, const CellGraphView &view) const;
 
 private:
 	std::vector<GraphConnection> physical_connections;
@@ -154,9 +194,6 @@ GraphCellId CellGraph::add_cell(RTLIL::Cell *cell)
 	log_assert(!cell_ids.count(cell));
 	GraphCellId id = GetSize(cells);
 	NodeType node_type = get_node_type(cell);
-	log("cellfilter: module %s: adding cell %s (%s) as %s\n",
-			module->name.c_str(), cell->get_string_attribute(ID::src).c_str(), cell->type.c_str(),
-			node_type_name(node_type));
 	cells.push_back(GraphCell{id, cell, node_type, node_type != NodeType::NONE, {}, {}});
 	cell_ids[cell] = id;
 	if (node_type != NodeType::NONE)
@@ -350,6 +387,274 @@ void CellGraph::build()
 	std::vector<std::vector<ConnectionId>>().swap(physical_outgoing);
 }
 
+static int integer_log2(unsigned long long value)
+{
+	int result = -1;
+	do {
+		result++;
+		value >>= 1;
+	} while (value != 0);
+	return result;
+}
+
+static int semantic_weight(RTLIL::IdString type)
+{
+	if (type.in(ID($mux), ID($pmux), ID($bmux), ID($demux), ID($bwmux),
+			ID($mul), ID($div), ID($mod), ID($divfloor), ID($modfloor),
+			ID($pow), ID($macc), ID($macc_v2), ID($alu)))
+		return 8;
+	if (type.in(ID($add), ID($sub), ID($shl), ID($shr), ID($sshl), ID($sshr),
+			ID($shift), ID($shiftx), ID($lt), ID($le), ID($eq), ID($ne),
+			ID($eqx), ID($nex), ID($ge), ID($gt)))
+		return 6;
+	if (type.in(ID($reduce_and), ID($reduce_or), ID($reduce_xor), ID($reduce_xnor),
+			ID($reduce_bool), ID($logic_not), ID($logic_and), ID($logic_or),
+			ID($lut), ID($sop), ID($lcu), ID($fa)))
+		return 5;
+	if (type.in(ID($and), ID($or), ID($xor), ID($xnor)))
+		return 4;
+	if (type.in(ID($not), ID($neg), ID($pos)))
+		return 3;
+	if (type.in(ID($buf), ID($slice), ID($concat), ID($barrier)))
+		return 1;
+	return 4;
+}
+
+static std::pair<int, int> boundary_key(const GraphPort &port)
+{
+	if (port.is_cell_port())
+		return std::make_pair(0, port.cell);
+	return std::make_pair(1, port.id);
+}
+
+CellGraphView CellGraph::create_view(const CellGraphFilterOptions &options) const
+{
+	CellGraphView view;
+	std::vector<std::vector<ConnectionId>> incoming(ports.size()), outgoing(ports.size());
+	for (const GraphConnection &connection : connections) {
+		outgoing.at(connection.src).push_back(connection.id);
+		incoming.at(connection.dst).push_back(connection.id);
+	}
+
+	for (GraphCellId node_id : nodes)
+		if (cells.at(node_id).in_graph)
+			view.visible_cells.insert(node_id);
+
+	if (!options.filtered()) {
+		for (GraphCellId cell_id : edge_cells)
+			view.visible_cells.insert(cell_id);
+		view.visible_edge_cell_count = GetSize(edge_cells);
+		for (const GraphConnection &connection : connections) {
+			ViewConnection item;
+			item.src = connection.src;
+			item.dst = connection.dst;
+			item.bit_count = connection.bit_count;
+			view.connections.push_back(std::move(item));
+		}
+	} else {
+		std::vector<std::vector<GraphCellId>> undirected(cells.size());
+		for (const GraphConnection &connection : connections) {
+			const GraphPort &src = ports.at(connection.src);
+			const GraphPort &dst = ports.at(connection.dst);
+			if (!src.is_cell_port() || !dst.is_cell_port())
+				continue;
+			if (cells.at(src.cell).is_node() || cells.at(dst.cell).is_node())
+				continue;
+			undirected.at(src.cell).push_back(dst.cell);
+			undirected.at(dst.cell).push_back(src.cell);
+		}
+
+		pool<GraphCellId> visited;
+		for (GraphCellId seed : edge_cells) {
+			if (!visited.insert(seed).second)
+				continue;
+			CellRegion region;
+			region.id = GetSize(view.regions);
+			std::deque<GraphCellId> queue;
+			queue.push_back(seed);
+			while (!queue.empty()) {
+				GraphCellId cell_id = queue.front();
+				queue.pop_front();
+				region.edge_cells.push_back(cell_id);
+				for (GraphCellId neighbor : undirected.at(cell_id))
+					if (visited.insert(neighbor).second)
+						queue.push_back(neighbor);
+			}
+			std::sort(region.edge_cells.begin(), region.edge_cells.end());
+			view.regions.push_back(std::move(region));
+		}
+
+		struct CellScore {
+			GraphCellId cell_id;
+			int score;
+		};
+
+		for (CellRegion &region : view.regions) {
+			pool<GraphCellId> region_cells(region.edge_cells.begin(), region.edge_cells.end());
+			std::vector<CellScore> scores;
+			for (GraphCellId cell_id : region.edge_cells) {
+				pool<std::pair<int, int>> unique_fanin, unique_fanout;
+				pool<std::pair<int, int>> upstream_boundaries, downstream_boundaries;
+
+				for (PortId input : cells.at(cell_id).inputs)
+					for (ConnectionId connection_id : incoming.at(input)) {
+						const GraphPort &src = ports.at(connections.at(connection_id).src);
+						unique_fanin.insert(boundary_key(src));
+					}
+				for (PortId output : cells.at(cell_id).outputs)
+					for (ConnectionId connection_id : outgoing.at(output)) {
+						const GraphPort &dst = ports.at(connections.at(connection_id).dst);
+						unique_fanout.insert(boundary_key(dst));
+					}
+
+				pool<GraphCellId> seen_upstream, seen_downstream;
+				std::deque<GraphCellId> upstream_queue, downstream_queue;
+				seen_upstream.insert(cell_id);
+				seen_downstream.insert(cell_id);
+				upstream_queue.push_back(cell_id);
+				downstream_queue.push_back(cell_id);
+
+				while (!upstream_queue.empty()) {
+					GraphCellId current = upstream_queue.front();
+					upstream_queue.pop_front();
+					for (PortId input : cells.at(current).inputs)
+						for (ConnectionId connection_id : incoming.at(input)) {
+							const GraphPort &src = ports.at(connections.at(connection_id).src);
+							if (src.is_cell_port() && region_cells.count(src.cell)) {
+								if (seen_upstream.insert(src.cell).second)
+									upstream_queue.push_back(src.cell);
+							} else {
+								upstream_boundaries.insert(boundary_key(src));
+								region.upstream_boundaries.insert(boundary_key(src));
+							}
+						}
+				}
+
+				while (!downstream_queue.empty()) {
+					GraphCellId current = downstream_queue.front();
+					downstream_queue.pop_front();
+					for (PortId output : cells.at(current).outputs)
+						for (ConnectionId connection_id : outgoing.at(output)) {
+							const GraphPort &dst = ports.at(connections.at(connection_id).dst);
+							if (dst.is_cell_port() && region_cells.count(dst.cell)) {
+								if (seen_downstream.insert(dst.cell).second)
+									downstream_queue.push_back(dst.cell);
+							} else {
+								downstream_boundaries.insert(boundary_key(dst));
+								region.downstream_boundaries.insert(boundary_key(dst));
+							}
+						}
+				}
+
+				int data_width = 0;
+				for (PortId output : cells.at(cell_id).outputs)
+					data_width = std::max(data_width, GetSize(ports.at(output).raw_signal));
+				if (data_width == 0)
+					for (PortId input : cells.at(cell_id).inputs)
+						data_width = std::max(data_width, GetSize(ports.at(input).raw_signal));
+
+				unsigned long long span = (unsigned long long)GetSize(upstream_boundaries) *
+						(unsigned long long)GetSize(downstream_boundaries);
+				int score = 4 * semantic_weight(cells.at(cell_id).cell->type) +
+						2 * integer_log2(1 + GetSize(unique_fanin) + GetSize(unique_fanout)) +
+						3 * integer_log2(1 + span) + integer_log2(1 + data_width);
+				scores.push_back(CellScore{cell_id, score});
+			}
+
+			std::sort(scores.begin(), scores.end(), [&](const CellScore &lhs, const CellScore &rhs) {
+				if (lhs.score != rhs.score)
+					return lhs.score > rhs.score;
+				RTLIL::Cell *lhs_cell = cells.at(lhs.cell_id).cell;
+				RTLIL::Cell *rhs_cell = cells.at(rhs.cell_id).cell;
+				if (lhs_cell->type.str() != rhs_cell->type.str())
+					return lhs_cell->type.str() < rhs_cell->type.str();
+				if (lhs_cell->name.str() != rhs_cell->name.str())
+					return lhs_cell->name.str() < rhs_cell->name.str();
+				return lhs.cell_id < rhs.cell_id;
+			});
+
+			int key_count = std::min(options.top_k, GetSize(scores));
+			for (int index = 0; index < key_count; index++) {
+				GraphCellId cell_id = scores.at(index).cell_id;
+				region.key_cells.push_back(cell_id);
+				view.visible_cells.insert(cell_id);
+			}
+			std::sort(region.key_cells.begin(), region.key_cells.end());
+		}
+
+		view.visible_edge_cell_count = GetSize(view.visible_cells) - GetSize(nodes);
+		view.hidden_edge_cell_count = GetSize(edge_cells) - view.visible_edge_cell_count;
+
+		std::map<std::pair<PortId, PortId>, ViewConnection> folded;
+		std::vector<PortId> source_ports;
+		for (GraphCellId cell_id : view.visible_cells)
+			for (PortId output : cells.at(cell_id).outputs)
+				source_ports.push_back(output);
+		for (PortId module_input : module_inputs)
+			source_ports.push_back(module_input);
+		std::sort(source_ports.begin(), source_ports.end());
+
+		for (PortId source : source_ports) {
+			std::deque<PortId> queue;
+			dict<PortId, pool<GraphCellId>> hidden_at_port;
+			pool<PortId> queued;
+			queue.push_back(source);
+			queued.insert(source);
+			while (!queue.empty()) {
+				PortId current_port = queue.front();
+				queue.pop_front();
+				queued.erase(current_port);
+				const pool<GraphCellId> current_hidden = hidden_at_port[current_port];
+				for (ConnectionId connection_id : outgoing.at(current_port)) {
+					const GraphConnection &connection = connections.at(connection_id);
+					const GraphPort &dst = ports.at(connection.dst);
+					bool dst_visible = !dst.is_cell_port() || view.visible_cells.count(dst.cell);
+					if (dst_visible) {
+						std::pair<PortId, PortId> key(source, connection.dst);
+						ViewConnection &item = folded[key];
+						item.src = source;
+						item.dst = connection.dst;
+						if (current_hidden.empty()) {
+							item.bit_count += connection.bit_count;
+						} else {
+							item.collapsed = true;
+							pool<GraphCellId> merged(item.hidden_cells.begin(), item.hidden_cells.end());
+							for (GraphCellId hidden_id : current_hidden)
+								merged.insert(hidden_id);
+							item.hidden_cells.assign(merged.begin(), merged.end());
+							std::sort(item.hidden_cells.begin(), item.hidden_cells.end());
+						}
+						continue;
+					}
+
+					GraphCellId hidden_id = dst.cell;
+					pool<GraphCellId> next_hidden = current_hidden;
+					next_hidden.insert(hidden_id);
+					for (PortId output : cells.at(hidden_id).outputs) {
+						bool changed = false;
+						pool<GraphCellId> &known = hidden_at_port[output];
+						for (GraphCellId item : next_hidden)
+							changed |= known.insert(item).second;
+						if (changed && queued.insert(output).second)
+							queue.push_back(output);
+					}
+				}
+			}
+		}
+
+		for (auto &item : folded)
+			view.connections.push_back(std::move(item.second));
+	}
+
+	for (const ViewConnection &connection : view.connections) {
+		if (!ports.at(connection.src).is_cell_port())
+			view.visible_module_ports.insert(connection.src);
+		if (!ports.at(connection.dst).is_cell_port())
+			view.visible_module_ports.insert(connection.dst);
+	}
+	return view;
+}
+
 static std::string dot_escape(const std::string &text)
 {
 	std::string result;
@@ -365,6 +670,11 @@ static std::string dot_escape(const std::string &text)
 	return result;
 }
 
+static std::string display_id(RTLIL::IdString id)
+{
+	return RTLIL::unescape_id(id.str());
+}
+
 static std::string dot_cell_id(int module_index, GraphCellId cell_id)
 {
 	return stringf("m%d_c%d", module_index, cell_id);
@@ -375,55 +685,52 @@ static std::string dot_port_id(int module_index, PortId port_id)
 	return stringf("m%d_p%d", module_index, port_id);
 }
 
-void CellGraph::dump_dot(std::ostream &f, int module_index) const
+void CellGraph::dump_dot(std::ostream &f, int module_index, const CellGraphView &view) const
 {
 	std::string prefix = stringf("m%d", module_index);
 	f << "  subgraph cluster_" << prefix << " {\n";
-	f << "    label=\"" << dot_escape(module->name.unescape()) << "\";\n";
+	f << "    label=\"" << dot_escape(display_id(module->name)) << "\";\n";
 	f << "    color=\"#bdbdbd\";\n";
 
 	for (const GraphCell &graph_cell : cells) {
-		if (!graph_cell.in_graph)
+		if (!view.visible_cells.count(graph_cell.id))
 			continue;
-		std::string label = graph_cell.cell->name.unescape() + "\n" +
-				graph_cell.cell->type.unescape() + "\n" + node_type_name(graph_cell.node_type);
+		std::string label = display_id(graph_cell.cell->name) + "\n" +
+				display_id(graph_cell.cell->type) + "\n" + node_type_name(graph_cell.node_type);
 		const char *fill = graph_cell.is_node() ? "#6baed6" : "#fdae6b";
 		f << "    " << dot_cell_id(module_index, graph_cell.id)
 				<< " [shape=box, style=filled, fillcolor=\"" << fill
 				<< "\", label=\"" << dot_escape(label) << "\"];\n";
 	}
 
-	pool<PortId> used_module_ports;
-	for (const GraphConnection &connection : connections) {
-		if (!ports[connection.src].is_cell_port())
-			used_module_ports.insert(connection.src);
-		if (!ports[connection.dst].is_cell_port())
-			used_module_ports.insert(connection.dst);
-	}
-	std::vector<PortId> sorted_module_ports(used_module_ports.begin(), used_module_ports.end());
+	std::vector<PortId> sorted_module_ports(view.visible_module_ports.begin(), view.visible_module_ports.end());
 	std::sort(sorted_module_ports.begin(), sorted_module_ports.end());
 	for (PortId port_id : sorted_module_ports) {
 		const GraphPort &port = ports[port_id];
 		const char *direction = port.direction == RTLIL::PortDir::PD_INOUT ? "inout" :
 				(port.is_input() ? "input" : "output");
-		std::string label = port.name.unescape() + "\nmodule " + direction;
+		std::string label = display_id(port.name) + "\nmodule " + direction;
 		f << "    " << dot_port_id(module_index, port.id)
 				<< " [shape=oval, style=filled, fillcolor=\"#d9d9d9\", label=\""
 				<< dot_escape(label) << "\"];\n";
 	}
 
-	for (const GraphConnection &connection : connections) {
+	for (const ViewConnection &connection : view.connections) {
 		const GraphPort &src = ports[connection.src];
 		const GraphPort &dst = ports[connection.dst];
 		std::string src_id = src.is_cell_port() ? dot_cell_id(module_index, src.cell) :
 				dot_port_id(module_index, src.id);
 		std::string dst_id = dst.is_cell_port() ? dot_cell_id(module_index, dst.cell) :
 				dot_port_id(module_index, dst.id);
-		std::string label = src.name.unescape() + " -> " + dst.name.unescape();
-		if (connection.bit_count > 1)
+		std::string label = display_id(src.name) + " -> " + display_id(dst.name);
+		if (connection.collapsed)
+			label += stringf(" (collapsed %d cells)", GetSize(connection.hidden_cells));
+		else if (connection.bit_count > 1)
 			label += stringf(" (%d bits)", connection.bit_count);
-		f << "    " << src_id << " -> " << dst_id << " [label=\""
-				<< dot_escape(label) << "\"];\n";
+		f << "    " << src_id << " -> " << dst_id << " [";
+		if (connection.collapsed)
+			f << "style=dashed, color=\"#7f7f7f\", ";
+		f << "label=\"" << dot_escape(label) << "\"];\n";
 	}
 	f << "  }\n";
 }
@@ -443,6 +750,10 @@ struct CellFilterPass : public Pass {
 		log("    -dot <filename>\n");
 		log("        write the graph in Graphviz DOT format\n");
 		log("\n");
+		log("    -topk <integer>\n");
+		log("        for each combinational region, retain at most this many key\n");
+		log("        edge cells in the DOT graph and collapse hidden paths\n");
+		log("\n");
 		log("This pass must be run after memory_collect.\n");
 		log("\n");
 	}
@@ -450,10 +761,23 @@ struct CellFilterPass : public Pass {
 	void execute(std::vector<std::string> args, RTLIL::Design *design) override
 	{
 		std::string dot_filename;
+		CellGraphFilterOptions filter_options;
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++) {
 			if (args[argidx] == "-dot" && argidx + 1 < args.size()) {
 				dot_filename = args[++argidx];
+				continue;
+			}
+			if (args[argidx] == "-topk") {
+				if (argidx + 1 >= args.size())
+					log_cmd_error("Option -topk requires a positive integer.\n");
+				const char *text = args[++argidx].c_str();
+				char *endptr = nullptr;
+				errno = 0;
+				long value = strtol(text, &endptr, 10);
+				if (errno != 0 || endptr == text || *endptr != '\0' || value <= 0 || value > INT_MAX)
+					log_cmd_error("Option -topk requires a positive integer.\n");
+				filter_options.top_k = int(value);
 				continue;
 			}
 			break;
@@ -488,8 +812,15 @@ struct CellFilterPass : public Pass {
 			graph.build();
 			log("Built data-path graph for %s: %d nodes, %d edge cells, %d port connections.\n",
 					module, GetSize(graph.nodes), GetSize(graph.edge_cells), GetSize(graph.connections));
-			if (dot_file)
-				graph.dump_dot(dot_file, module_index);
+			if (dot_file) {
+				CellGraphView view = graph.create_view(filter_options);
+				if (filter_options.filtered())
+					log("Filtered graph view for %s: %d regions, %d visible edge cells, "
+							"%d hidden edge cells, %d view connections.\n", module,
+							GetSize(view.regions), view.visible_edge_cell_count,
+							view.hidden_edge_cell_count, GetSize(view.connections));
+				graph.dump_dot(dot_file, module_index, view);
+			}
 			module_index++;
 		}
 
