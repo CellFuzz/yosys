@@ -2,7 +2,7 @@
 
 本阶段执行已确认的 [实施计划 §3A](InstrumentImplementationPlan.md#3a-信号绑定与物化)，依据 [设计 §6/§8](InstrumentDesign.md#6-普通观测值的可逆打包)。复用 2A 类型规则及 2B 布局和静态图；普通旁路、状态转换和原子发布在本阶段交付，Ibex 用例的完整闭环按 3B 交付，memory 能力仍按第四、第五步交付。
 
-后续第四步已复用本物化路径实现 Memory 业务观测，见 [Stage4MemoryAccess.md](Stage4MemoryAccess.md)。下文关于默认 memory 业务拒绝的记录是 3A 当时的阶段边界；当前默认业务观测已成功，内容查询仍拒绝。
+后续第四步已复用本物化路径实现 Memory 业务观测，见 [Stage4MemoryAccess.md](Stage4MemoryAccess.md)。下文关于默认 memory 业务拒绝的记录是 3A 当时的阶段边界；当前默认业务观测及第五步可选内容查询均已实现，后者见 [Stage5MemoryQuery.md](Stage5MemoryQuery.md)。
 
 ## 目标、接口与边界
 

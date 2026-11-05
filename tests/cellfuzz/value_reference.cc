@@ -79,6 +79,21 @@ struct TestCellFuzzReference : Pass {
 				wire->port_output = false;
 			}
 		}
+		// Query addresses are unconstrained common inputs in the functional
+		// miter. Query data is validated by an independent array oracle below
+		// the exported interface, not by adding a gold-side debug memory read.
+		for (const auto &memory : report["memories"].array_items()) {
+			if (!memory["content_query"].bool_value()) continue;
+			const auto &query = memory["query"];
+			if (args[1] == "gold") {
+				auto wire = module->addWire(RTLIL::escape_id(query["address_port"].string_value()), query["address_width"].int_value());
+				wire->port_input = true;
+			} else {
+				auto wire = module->wire(RTLIL::escape_id(query["data_port"].string_value()));
+				log_assert(wire && wire->port_output && !wire->port_input);
+				wire->port_output = false;
+			}
+		}
 		for (int id = 0; id < GetSize(values); id++) {
 			auto name = RTLIL::escape_id(stringf("%s%04d", args[4], id));
 			log_assert(!module->count_id(name));

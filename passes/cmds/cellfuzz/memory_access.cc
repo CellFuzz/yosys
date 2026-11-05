@@ -2,6 +2,7 @@
 #include "monitor_plan.h"
 
 #include <algorithm>
+#include <climits>
 #include <tuple>
 
 YOSYS_NAMESPACE_BEGIN
@@ -41,9 +42,7 @@ void plan_memory_access(const RestoredAnalysis &analysis, MonitorPlan &plan)
 			log_cmd_error("cellinstrument: memory must be collected and belong to the frozen graph.\n");
 		auto cell = cells.at(memory.cell);
 		bool selected = analysis.selection.selected_cells.count(cell);
-		if (selected && plan.options.mem_query)
-			log_cmd_error("cellinstrument: cell %s requests memory content query not yet implemented; use -mem-content off.\n", memory.cell);
-		MemoryInfo info{cell, memory, selected, selected && plan.options.mem_access, {}, {}};
+		MemoryInfo info{cell, memory, selected, selected && plan.options.mem_access, {}, {}, {}, memory.cell->getParam(ID::INIT)};
 		int abits = memory.cell->getParam(ID::ABITS).as_int();
 		auto add = [&](MemoryAccessPort &owner, const char *name, RTLIL::IdString raw_port,
 				int offset, const RTLIL::SigSpec &source, bool active = true) {
@@ -92,6 +91,80 @@ void plan_memory_access(const RestoredAnalysis &analysis, MonitorPlan &plan)
 	std::sort(plan.memories.begin(), plan.memories.end(), [&](const auto &a, const auto &b) {
 		return graph.cells[a.cell].name.str() < graph.cells[b.cell].name.str();
 	});
+	for (int index = 0; index < GetSize(plan.memories); index++) {
+		auto &info = plan.memories[index];
+		if (!info.selected || !plan.options.mem_query) continue;
+		const auto &memory = info.memory;
+		int64_t last = int64_t(memory.start_offset) + memory.size - 1;
+		if (memory.start_offset < 0 || memory.size <= 0 || last > INT_MAX)
+			log_cmd_error("cellinstrument: memory query requires a nonnegative address range ending at or below INT_MAX.\n");
+		auto &query = info.query;
+		query.enabled = true;
+		query.addr_width = 1;
+		while (last >> query.addr_width) query.addr_width++;
+		query.addr_name = stringf("%s_mem_%04d_addr", plan.options.prefix, index);
+		query.data_name = stringf("%s_mem_%04d_data", plan.options.prefix, index);
+		int64_t reads = memory.cell->getParam(ID::RD_PORTS).as_int(), writes = memory.cell->getParam(ID::WR_PORTS).as_int();
+		int64_t abits = std::max(query.addr_width, memory.cell->getParam(ID::ABITS).as_int());
+		if ((reads + 1) * memory.width >= RTLIL::WIDTH_LIMIT || (reads + 1) * abits >= RTLIL::WIDTH_LIMIT ||
+				writes * abits >= RTLIL::WIDTH_LIMIT || (reads + 1) * writes >= RTLIL::WIDTH_LIMIT)
+			log_cmd_error("cellinstrument: normalized memory query exceeds RTLIL width limits.\n");
+		// All fatal helper checks run before artifact preparation. emit extends
+		// addresses unsigned; no business address bit is truncated or sign-extended.
+		memory_with_query(info, RTLIL::SigSpec(RTLIL::State::S0, query.addr_width),
+				RTLIL::SigSpec(RTLIL::State::Sx, memory.width));
+	}
+}
+
+Mem memory_with_query(const MemoryInfo &info, const RTLIL::SigSpec &addr, const RTLIL::SigSpec &data)
+{
+	auto memory = info.memory;
+	if (!info.query.enabled || GetSize(addr) != info.query.addr_width || GetSize(data) != memory.width)
+		log_cmd_error("cellinstrument: invalid memory query binding.\n");
+	MemRd query;
+	query.wide_log2 = 0;
+	query.clk_enable = false; query.clk_polarity = true; query.ce_over_srst = false;
+	query.clk = RTLIL::State::Sx; query.en = RTLIL::State::S1;
+	query.arst = RTLIL::State::S0; query.srst = RTLIL::State::S0;
+	query.init_value = query.arst_value = query.srst_value = RTLIL::Const(RTLIL::State::Sx, memory.width);
+	query.transparency_mask.resize(memory.wr_ports.size(), false);
+	query.collision_x_mask.resize(memory.wr_ports.size(), false);
+	query.addr = addr; query.data = data;
+	memory.rd_ports.push_back(query);
+	memory.check();
+	return memory;
+}
+
+void verify_memory_query(const MemoryInfo &info, const Mem &actual, RTLIL::Wire *addr, RTLIL::Wire *data)
+{
+	const auto &original = info.memory;
+	auto expected = memory_with_query(info, addr, data);
+	int abits = info.query.addr_width;
+	for (const auto &port : original.rd_ports) abits = std::max(abits, GetSize(port.addr));
+	for (const auto &port : original.wr_ports) abits = std::max(abits, GetSize(port.addr));
+	auto fail = [] { log_cmd_error("cellinstrument: emitted memory differs from query plan or original business semantics.\n"); };
+	if (actual.memid != original.memid || actual.width != original.width || actual.size != original.size ||
+			actual.start_offset != original.start_offset || actual.attributes != original.attributes ||
+			actual.cell->getParam(ID::INIT) != info.original_init || actual.rd_ports.size() != expected.rd_ports.size() ||
+			actual.wr_ports.size() != original.wr_ports.size()) fail();
+	for (int index = 0; index < GetSize(expected.rd_ports); index++) {
+		auto before = expected.rd_ports[index];
+		const auto &after = actual.rd_ports[index];
+		before.addr.extend_u0(abits, false);
+		if (before.addr != after.addr || before.data != after.data || before.en != after.en || before.clk != after.clk ||
+				before.arst != after.arst || before.srst != after.srst || before.wide_log2 != after.wide_log2 ||
+				before.clk_enable != after.clk_enable || before.clk_polarity != after.clk_polarity || before.ce_over_srst != after.ce_over_srst ||
+				before.init_value != after.init_value || before.arst_value != after.arst_value || before.srst_value != after.srst_value ||
+				before.transparency_mask != after.transparency_mask || before.collision_x_mask != after.collision_x_mask) fail();
+	}
+	for (int index = 0; index < GetSize(original.wr_ports); index++) {
+		auto before = original.wr_ports[index];
+		const auto &after = actual.wr_ports[index];
+		before.addr.extend_u0(abits, false);
+		if (before.addr != after.addr || before.data != after.data || before.en != after.en || before.clk != after.clk ||
+				before.wide_log2 != after.wide_log2 || before.clk_enable != after.clk_enable ||
+				before.clk_polarity != after.clk_polarity || before.priority_mask != after.priority_mask) fail();
+	}
 }
 
 void bind_memory_monitors(MonitorPlan &plan)
@@ -154,10 +227,20 @@ Json memory_access_record(const MemoryInfo &info, const MonitorPlan &plan, const
 	}
 	Json::array notes;
 	if (has_sync && !sync_observed) notes.push_back("synchronous read output holding state has no memory access observation");
+	Json query;
+	if (info.query.enabled) {
+		int packed = 0;
+		for (const auto &port : memory.rd_ports) packed += 1 << port.wide_log2;
+		query = Json::object{{"address_port", info.query.addr_name}, {"data_port", info.query.data_name},
+				{"address_width", info.query.addr_width}, {"data_width", memory.width},
+				{"address_encoding", "unsigned_logical"}, {"start_offset", memory.start_offset},
+				{"end_offset_exclusive", double(int64_t(memory.start_offset) + memory.size)},
+				{"read_index", GetSize(memory.rd_ports)}, {"packed_index", packed}, {"asynchronous", true}, {"always_enabled", true}};
+	}
 	return Json::object{{"memid", memory.memid.str()}, {"width", memory.width}, {"size", memory.size},
 			{"start_offset", memory.start_offset}, {"end_offset_exclusive", double(int64_t(memory.start_offset) + memory.size)},
-			{"init", constant_record(memory.cell->getParam(ID::INIT))}, {"read_ports", reads}, {"write_ports", writes},
-			{"access_enabled", info.access_enabled}, {"access_observed", observed}, {"content_query", false},
+			{"init", constant_record(info.original_init)}, {"read_ports", reads}, {"write_ports", writes},
+			{"access_enabled", info.access_enabled}, {"access_observed", observed}, {"content_query", info.query.enabled}, {"query", query},
 			{"sync_read_state_observed", sync_observed}, {"coverage_notes", notes}};
 }
 

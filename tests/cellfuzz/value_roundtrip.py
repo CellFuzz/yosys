@@ -152,6 +152,9 @@ class Roundtrip:
         directory, report, original = case
         inputs = {name: len(port["bits"]) for name, port in original["ports"].items() if port["direction"] == "input"}
         outputs = {name: len(port["bits"]) for name, port in original["ports"].items() if port["direction"] == "output"}
+        query_ports = [memory["query"] for memory in report["memories"] if memory["content_query"]]
+        query_inputs = {query["address_port"]: query["address_width"] for query in query_ports}
+        inputs.update(query_inputs)
         assert all(vector.keys() == inputs.keys() for vector in vectors)
         lines = ["module bench(input driver);", "reg [9:0] tick = 0;", "always @(posedge driver) tick <= tick + 1;"]
         shared = []
@@ -163,7 +166,11 @@ class Roundtrip:
                 lines += [f"10'd{index}: stim_{name} = {width}'b{bits};"]
             lines += [f"default: stim_{name} = {width}'b{bits};", "endcase"]
             shared += [f".{name}(stim_{name})"]
-        gold, gate = list(shared), list(shared)
+        gold = [connection for name, connection in zip(inputs, shared) if name not in query_inputs]
+        gate = list(shared)
+        for index, query in enumerate(query_ports):
+            lines += [f"wire [{query['data_width']-1}:0] a_query{index};"]
+            gate += [f".{query['data_port']}(a_query{index})"]
         for index, (name, width) in enumerate(outputs.items()):
             lines += [f"wire [{width-1}:0] g_func{index}, a_func{index};"]
             gold += [f".{verilog_id(name)}(g_func{index})"]

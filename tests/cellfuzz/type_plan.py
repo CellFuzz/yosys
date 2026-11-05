@@ -77,7 +77,8 @@ with tempfile.TemporaryDirectory(prefix="cellfuzz-types-") as tmp:
         run(memory + "cellfilter; " + plan_command + " " + options)
         assert any(item["role"] == "memory_access" for item in json.loads((work / "plan.json").read_text())["items"])
     for options in ("-mem-access off -mem-content query", "-mem-access on -mem-content query"):
-        run(memory + "cellfilter; " + plan_command + " " + options, error="memory content query not yet implemented")
+        run(memory + "cellfilter; " + plan_command + " " + options)
+        assert all(entry["content_query"] for entry in json.loads((work / "plan.json").read_text())["memories"])
     run(memory + "cellfilter; " + plan_command + " -mem-access off")
     mem_plan = json.loads((work / "plan.json").read_text())
     assert any(cell["reason"] == "memory_observation_disabled" for cell in mem_plan["unobserved_cells"])

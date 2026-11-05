@@ -8,7 +8,8 @@ namespace CellFuzz {
 
 // Consume command-local sources and original RTLIL already fully checked
 // against the frozen graph (including Module::check before file preparation).
-// Adds only output wires and continuous assignments. The caller owns batch
+// Adds ordinary bypasses and optional asynchronous memory query ports.
+// The caller owns batch
 // invalidation, artifact publication and the final successful-module marker.
 void materialize_observations(RTLIL::Module *module, const MonitorPlan &plan, const TransportLayout &layout);
 

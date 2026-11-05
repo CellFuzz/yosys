@@ -1,10 +1,10 @@
 # CellFuzz：Yosys 侧插装实施计划
 
-状态：2026-11-05 按已确认需求分阶段实施。设计依据为 [InstrumentDesign.md](InstrumentDesign.md)。当前已实现 cellfilter 的共享图服务、选择/view 和会话快照交接，以及 cellinstrument 的 2A 类型规划、2B 确定性静态契约、3A 普通旁路物化、3B Ibex 实际值闭环及 register 补充验收和第四步 Memory 业务端口观测；第五步内容查询仍待交付。
+状态：2026-11-05 按已确认需求分阶段实施。设计依据为 [InstrumentDesign.md](InstrumentDesign.md)。当前已实现 cellfilter 的共享图服务、选择/view 和会话快照交接，以及 cellinstrument 的 2A 类型规划、2B 确定性静态契约、3A 普通旁路物化、3B Ibex 实际值闭环及 register 补充验收、第四步 Memory 业务端口观测和第五步内容查询。Yosys 侧首版已实现。
 
 阶段进展：1A 见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)，1B/1C 见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)，2A 见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)，2B 见 [Stage2BManifest.md](Stage2BManifest.md)，3A 见 [Stage3AMaterialization.md](Stage3AMaterialization.md)，3B 见 [Stage3BValueRoundtrip.md](Stage3BValueRoundtrip.md)。
 
-第四步实现、schema 增补及验证边界见 [Stage4MemoryAccess.md](Stage4MemoryAccess.md)。
+第四步实现、schema 增补及验证边界见 [Stage4MemoryAccess.md](Stage4MemoryAccess.md)；第五步查询接口、归一化检查及验收见 [Stage5MemoryQuery.md](Stage5MemoryQuery.md)。
 
 ## 1. 交付目标与顺序
 
@@ -149,7 +149,7 @@ JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，�
 
 完成标志：默认命令可处理包含已选 memory 的设计，产出业务观测项。内容查询被显式请求时仍报告本阶段尚未交付。
 
-第四步已交付：只读 Mem helper 关联、逐逻辑业务字段的原图切片与 memory_access item、完整读写静态语义，以及既有旁路物化和原子发布。专项测试检查实际接口、原功能及数组状态，覆盖同步读保持、两种复位优先级、正负沿写、mask/priority、透明读/碰撞 X、宽口、legacy、零读/写口与正负 offset；内容查询拒绝及失败保护继续保留。
+第四步已交付：只读 Mem helper 关联、逐逻辑业务字段的原图切片与 memory_access item、完整读写静态语义，以及既有旁路物化和原子发布。专项测试检查实际接口、原功能及数组状态，覆盖同步读保持、两种复位优先级、正负沿写、mask/priority、透明读/碰撞 X、宽口、legacy、零读/写口与正负 offset；第四步当时保留内容查询拒绝；第五步现已实现查询并扩展失败保护。
 
 ## 7. 第五步：Memory 内容查询
 
@@ -163,6 +163,8 @@ JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，�
 验收：on/off（默认）、off/off、off/query、on/query 四组合的接口及描述一致；覆盖初始化、边界/非零 offset、掩码、多写同址和宽端口；改变查询地址不改变原输出、状态更新或读保持行为；memory check、RTLIL 检查和 Verilog 导出通过。
 
 完成标志：Yosys 侧首版交付完成：两个 pass、全部约定观测规则、静态图与可逆映射、可选实际内容查询均可独立验证。
+
+第五步已实现：冻结原业务 helper，按排序原 memory 序号规划独立 addr/data 接口；预检非负地址范围和 RTLIL 宽度，先 check 全部 helper 再 emit，并核对原业务语义与实际查询绑定。manifest 的 query 映射独立于 graph/items/transport；原子发布、批次失效和成功标记沿用既有边界。专项覆盖四组合、实际数组值、未知初始化、地址扩展、多个 memory 及物化中断/损坏/发布失败。
 
 ## 8. 验证门槛和本次之后
 

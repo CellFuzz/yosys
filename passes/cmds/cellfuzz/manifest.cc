@@ -170,7 +170,8 @@ Json planned_manifest(const RestoredAnalysis &analysis, const MonitorPlan &plan,
 	Json::array cells, ports, wires, connections, memories;
 	for (auto id : ids.cell_order) {
 		const auto &cell = graph.cells[id];
-		std::string reason = observed_cells.count(id) ? "observed" : omitted.count(id) ? omitted.at(id) : "no_observation_source";
+		std::string reason = observed_cells.count(id) ? "observed" :
+				memory_info.count(id) && memory_info.at(id)->query.enabled ? "memory_content_query" : omitted.count(id) ? omitted.at(id) : "no_observation_source";
 		cells.push_back(Json::object{{"id", ids.cells[id]}, {"analysis_cell_id", id}, {"name", cell.name.str()},
 				{"type", cell.type.str()}, {"semantic_type", cell.type == ID($scopeinfo) ? "metadata" : semantic(cell.node_type)},
 				{"role", role(cell.role)}, {"retention_reason", retention(cell.retention_reason)}, {"in_graph", cell.in_graph},
@@ -245,7 +246,7 @@ Json planned_manifest(const RestoredAnalysis &analysis, const MonitorPlan &plan,
 				{"port_name", segment.port_name}, {"port_lsb", segment.port_lsb}, {"width", segment.width}});
 	report["transport"] = Json::object{{"ports", transport_ports}, {"segments", segments}, {"total_bits", double(layout.total_bits)}};
 	report["memories"] = memories;
-	report["diagnostics"] = Json::array{"planned only; no interface has been materialized", "memory content query is not implemented"};
+	report["diagnostics"] = Json::array{"planned only; no interface has been materialized"};
 	report["summary"] = Json::object{{"cells", GetSize(cells)}, {"ports", GetSize(ports)}, {"connections", GetSize(connections)},
 			{"items", GetSize(items)}, {"observed_cells", GetSize(observed_cells)}, {"total_bits", double(layout.total_bits)}};
 	return report;
@@ -256,8 +257,7 @@ Json materialized_manifest(const Json &planned)
 	auto report = planned.object_items();
 	report["status"] = "materialized";
 	report["stage"] = "observation-materialization";
-	report["diagnostics"] = Json::array{"ordinary observation outputs materialized; no sampling state added",
-			"memory content query is not implemented"};
+	report["diagnostics"] = Json::array{"ordinary bypass outputs and requested memory query interfaces materialized; no sampling state added"};
 	return report;
 }
 

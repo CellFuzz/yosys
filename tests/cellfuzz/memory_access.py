@@ -81,7 +81,7 @@ def sync_vectors():
     return vectors
 
 
-def check_memory_state(samples, outputs, write_positive=True):
+def check_memory_state(samples, outputs, write_positive=True, query=None):
     memory, state, previous_clk = [0x10, 0x21, 0x32, 0x43], {1: 0x92, 2: 0x93, 3: 0x94}, 0
     exercised, previous_reads = set(), {}
     for timestamp, values in samples:
@@ -127,6 +127,9 @@ def check_memory_state(samples, outputs, write_positive=True):
         expected = {"r0_data": memory[get("r0_addr")], **{f"r{i}_data": state[i] for i in (1, 2, 3)}}
         for name, number in expected.items():
             assert values[f"g_func{outputs.index(name)}"] == format(number, "08b"), (timestamp, name, number, values[f"g_func{outputs.index(name)}"])
+        if query:
+            address = get(query["address_port"])
+            assert values["a_query0"] == format(memory[address], "08b"), (timestamp, address, memory, values["a_query0"])
         previous_clk, previous_reads = clk, state.copy()
     assert exercised == {"reset_over_enable", "enable_over_reset", "holding_output", "async_reset_between_edges",
                          "synchronous_read", "negative_read", "masked_write", "write_priority", "read_before_write"}, exercised
@@ -263,7 +266,7 @@ def main():
         assert (work / "planned.json").read_bytes() == (work / "again.json").read_bytes()
         for option in ("-mem-access on", "-mem-access off"):
             (work / "planned.json").write_text("previous artifact\n")
-            suite.run(setup + f"; cellfilter; test_cellfuzz_materialize preflight {work}/planned.json "
+            suite.run("test_cellfuzz_memory fixture negative" + f"; cellfilter; test_cellfuzz_materialize preflight {work}/planned.json "
                       f"cellinstrument -manifest {work}/planned.json {option} -mem-content query; "
                       f"cellinstrument -plan-only -manifest {work}/usable.json")
             assert (work / "planned.json").read_text() == "previous artifact\n"

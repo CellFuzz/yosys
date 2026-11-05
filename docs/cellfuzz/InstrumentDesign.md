@@ -1,10 +1,10 @@
 # CellFuzz：Yosys 侧观测插装设计
 
-状态：2026-11-05 按已确认设计分阶段实施。当前 `cellfilter` 已实现 node 类型配置、region 选择策略、共享选择/view 及会话内分析结果交接；`cellinstrument` 已实现 2A 类型规划、2B 确定性静态契约、3A 普通旁路物化、3B Ibex 实际值闭环及 register 补充验收，以及第四步 Memory 业务端口观测。内容查询仍待第五步交付。
+状态：2026-11-05 按已确认设计分阶段实施。当前 `cellfilter` 已实现 node 类型配置、region 选择策略、共享选择/view 及会话内分析结果交接；`cellinstrument` 已实现 2A 类型规划、2B 确定性静态契约、3A 普通旁路物化、3B Ibex 实际值闭环及 register 补充验收，以及第四步 Memory 业务端口观测和第五步可选内容查询。Yosys 侧首版观测能力已实现。
 
 阶段进展：共享服务见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)；会话快照、发布和恢复绑定见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)；类型规划见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)；静态 schema 见 [Stage2BManifest.md](Stage2BManifest.md)；物化与失败边界见 [Stage3AMaterialization.md](Stage3AMaterialization.md)；实际值回归及夹具来源见 [Stage3BValueRoundtrip.md](Stage3BValueRoundtrip.md)。默认命令输出 `status: materialized`、`stage: observation-materialization`；`-plan-only` 输出 `status: planned`、`stage: observation-planning`。
 
-Memory 默认业务观测 on、内容查询 off；业务口静态字段、原端口切片及专项验收见 [Stage4MemoryAccess.md](Stage4MemoryAccess.md)。
+Memory 默认业务观测 on、内容查询 off；业务口静态字段、原端口切片及专项验收见 [Stage4MemoryAccess.md](Stage4MemoryAccess.md)；独立单字查询接口、地址编码、业务保持与失败验收见 [Stage5MemoryQuery.md](Stage5MemoryQuery.md)。
 
 ## 1. 目标和本次边界
 
@@ -173,7 +173,7 @@ mux 类型采用明确分派：
 
 输出表示当前信号值。一次读写是否已经提交、应当何时采样，由未来采集层判断。同步读口的保持值是额外时序状态，单独读取数组不能代替它；关闭业务观测时应明确记录这一覆盖减少。
 
-第四步已实现上述业务观测，逐逻辑端口字段生成 `memory_access` item；原 collected GraphPort 的切片由 item.port_lsb 与 width 指定。无效 clock、恒无效 reset、legacy 缺失的 reset 和零宽地址只记录静态源及原因，不创建零宽或无效控制项。宽端口保留 helper 逻辑编号、原 packed 起点及分词数，掩码按逻辑写口编号解释；完整 packed 参数仍保存在原图。原 memory cell 不重写，负 offset 的业务观测可用；内容查询的地址限制留到第五步。
+第四步已实现上述业务观测，逐逻辑端口字段生成 `memory_access` item；原 collected GraphPort 的切片由 item.port_lsb 与 width 指定。无效 clock、恒无效 reset、legacy 缺失的 reset 和零宽地址只记录静态源及原因，不创建零宽或无效控制项。宽端口保留 helper 逻辑编号、原 packed 起点及分词数，掩码按逻辑写口编号解释；完整 packed 参数仍保存在原图。仅业务观测时原 memory cell 不重写，负 offset 可用；启用查询时按 §5.2 校验地址并增加读口。
 
 ### 5.2 内容查询
 
@@ -191,6 +191,8 @@ cf_mem_0003_data  output  对应地址的当前单字内容
 静态说明记录 `[start_offset, start_offset + size)`、单字宽度、地址位宽和编码。地址以 memory 的逻辑地址表达；首版支持经过验证的非负 offset，负 offset 或无法证明安全的地址扩展在启用 query 时预检报错。越界地址不承诺有效查询结果。
 
 `Mem::emit()` 可能统一地址宽度，规划和物化都必须检查原业务地址含义不变。memory 修改先在 helper 中全部校验后再 emit；修改后不再用原 GraphPort 布局解释新 memory。
+
+第五步已实现：`content_query` 表示是否对该原 memory 启用查询，`query` 为 null 或独立接口描述。memory 序号按全部原 memory 的 cell 名排序，名称为 `<prefix>_mem_NNNN_addr/data`；接口在原接口和普通输出块之后成对附加。地址宽度为覆盖最后逻辑地址的最小正位宽（单字零地址也为 1），支持非负且最后地址不超过 INT_MAX 的范围，地址编码为 `unsigned_logical`。Mem::emit 保留较宽的原业务地址，仅在需要时高位补零；query 描述保存 logical/packed 新读口编号，业务编号及 source 仍引用冻结原图。规划在任何产物准备前检查完整查询 helper 和地址归一化后的 RTLIL 宽度，物化先准备所有 helper 再统一 emit，随后核对业务控制、掩码、初始化、几何和查询绑定。legacy `$mem` 可规范化为 `$mem_v2`。
 
 ## 6. 普通观测值的可逆打包
 
@@ -227,7 +229,7 @@ monitor_id, item_lsb, port_name, port_lsb, width
 
 原有连接完整导出；top-k view 中的折叠连接放在独立的 `view` 中，不能替代原图。`bit_count` 仅是统计，折叠边也不是逐 bit 功能依赖。端口源绑定保留有序 bit 引用，供精确观测和别名解释使用。
 
-下列静态契约沿用 2B/3A 的字段编码和 ID 命名空间，见 [Stage2BManifest.md](Stage2BManifest.md)。第四步增加原端口切片和 memory 业务语义；正式物化保持冻结的原 graph/selection/view/items，新增实际输出仍只在 transport 登记，内容查询留到第五步：
+下列静态契约沿用 2B/3A 的字段编码和 ID 命名空间，见 [Stage2BManifest.md](Stage2BManifest.md)。第四步增加原端口切片和 memory 业务语义，第五步增加 memories[].query 映射；正式物化保持冻结的原 graph/selection/view/items，普通输出在 transport 登记，独立查询接口仅在所属原 memory 的 query 中登记：
 
 | 字段 | 内容 |
 | --- | --- |

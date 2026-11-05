@@ -24,7 +24,7 @@ struct CellInstrumentPass : Pass {
 		log("Plan all combinational outputs, mux selectors, register Q and enabled\n");
 		log("memory business signals from their original read/write ports.\n");
 		log("Write the complete original graph, selection/view, sources and bit layout\n");
-		log("as a JSON manifest. By default, add top-level outputs and continuous bypasses,\n");
+		log("as a JSON manifest. Add bypass outputs and any requested memory query ports,\n");
 		log("invalidate the analysis batch and publish status materialized on success.\n");
 		log("With -plan-only, publish status planned and preserve RTLIL and the batch.\n");
 		log("After any failure once materialization starts, discard the current Design,\n");
@@ -38,7 +38,7 @@ struct CellInstrumentPass : Pass {
 		log("        business memory observation (default: on)\n");
 		log("    -mem-content off|query\n");
 		log("        memory content observation (default: off)\n");
-		log("        content query is not yet implemented for selected memories\n");
+		log("        query adds a separate asynchronous single-word address/data interface\n");
 		log("    -chunk-width <bits>\n");
 		log("        positive transport width limit (default: 256)\n");
 		log("    -prefix <name>\n");
@@ -125,8 +125,10 @@ struct CellInstrumentPass : Pass {
 				log_cmd_error("cellinstrument: materialization failed; discard the current Design, reload the prepared design and rerun cellfilter.\n");
 			log_cmd_error("cellinstrument: artifact preparation or publication failed before design modification.\n");
 		}
-		log("%s %d observation items in %d output blocks for %s.\n",
-				plan_only ? "Planned" : "Materialized", GetSize(plan.items), GetSize(layout.ports), top);
+		int queries = 0;
+		for (const auto &info : plan.memories) queries += info.query.enabled;
+		log("%s %d observation items in %d output blocks and %d memory queries for %s.\n",
+				plan_only ? "Planned" : "Materialized", GetSize(plan.items), GetSize(layout.ports), queries, top);
 	}
 } CellInstrumentPass;
 

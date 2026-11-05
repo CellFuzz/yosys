@@ -2,6 +2,8 @@
 
 本阶段落实已确认的 [实施计划第四步](InstrumentImplementationPlan.md#6-第四步memory-业务端口观测) 和 [设计 §5.1](InstrumentDesign.md#51-业务端口观测)。默认 `-mem-access on -mem-content off` 支持已选 collected memory；`-mem-content query` 在已选 memory 上继续预检拒绝。CLI、选择算法、普通输出/mux/register 规则及发布失败边界沿用前三步。
 
+后续第五步已实现可选查询，见 [Stage5MemoryQuery.md](Stage5MemoryQuery.md)。下文的 query 拒绝和 memory 不重写描述是第四步交付时的范围；当前仅业务观测仍保持原 cell 精确不变，启用查询允许增加读口及安全的地址宽度归一化。
+
 ## 实现契约
 
 通过 `Mem::get_all_memories()` 只读解析原 `$mem` / `$mem_v2`，以原 cell 身份对应冻结图；不调用 `emit()`、`narrow()` 或修改业务口。保存所有 memory 的逻辑地址范围、字宽、初始化与读写口静态语义，即使观测关闭或 memory 未选中。逻辑业务口按 helper 原顺序编号；另存原 collected packed 起始编号、`wide_log2` 和分词数，掩码均按逻辑写口编号解释。

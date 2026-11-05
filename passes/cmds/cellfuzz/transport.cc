@@ -88,6 +88,19 @@ void validate_transport(const MonitorPlan &plan, const TransportLayout &layout, 
 		require(widths.emplace(port.name, port.width).second, "duplicate interface name");
 		port_total += port.width;
 	}
+	std::set<std::string> all_names;
+	for (const auto &port : layout.ports) all_names.insert(port.name);
+	for (const auto &info : plan.memories) {
+		if (!info.query.enabled) continue;
+		for (const auto &name : {info.query.addr_name, info.query.data_name}) {
+			check_name(name, module);
+			require(all_names.insert(name).second, "duplicate query/transport interface name");
+		}
+		require(info.query.addr_width > 0 && info.query.addr_width <= 31 && info.memory.width > 0 &&
+				info.memory.width < RTLIL::WIDTH_LIMIT, "query interface width out of range");
+	}
+	require(module->ports.size() <= size_t(INT_MAX) && all_names.size() <= size_t(INT_MAX) - module->ports.size(),
+			"too many top-level ports");
 	// json11 numbers are doubles. Do not silently round aggregate widths in
 	// the exported contract, even though practical plans are much smaller.
 	require(item_total <= 9007199254740991LL && port_total == item_total && layout.total_bits == item_total,

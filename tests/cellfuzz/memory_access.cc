@@ -22,9 +22,11 @@ static void fixture(RTLIL::Design *design, const std::string &mode)
 	module->set_bool_attribute(ID::top);
 	auto clk = port(module, "clk", 1);
 	int width = wide ? 33 : 8, size = wide ? 8 : 4;
-	int offset = wide ? 8 : mode == "negative" ? -4 : mode == "offset" ? 4 : 0;
+	int offset = wide ? 8 : mode == "negative" ? -4 : mode == "offset" ? 4 : mode == "overflow" ? INT_MAX - 1 : 0;
 	int abits = offset < 0 ? 32 : wide || offset != 0 ? 4 : mode == "zero-address" ? 0 : 2;
 	if (mode == "zero-address") size = 1;
+	if (mode == "extend") abits = 1; // query must widen packed addresses
+	if (mode == "overflow") abits = 32;
 	Mem memory(module, RTLIL::escape_id("array"), width, offset, size);
 	memory.packed = true;
 	int write_count = mode == "read-only" || mode == "zero-address" ? 0 : mode == "write-only" || mode == "async-write" ? 1 : 2;
@@ -77,11 +79,11 @@ static void fixture(RTLIL::Design *design, const std::string &mode)
 	MemInit init;
 	init.addr = offset;
 	init.en = RTLIL::Const(RTLIL::State::S1, width);
-	for (int index = 0; index < size; index++) init.data.append(RTLIL::Const(0x10 + index * 0x11, width));
+	for (int index = 0; index < size - (mode == "partial-init" ? 1 : 0); index++) init.data.append(RTLIL::Const(0x10 + index * 0x11, width));
 	memory.inits.push_back(init);
 	memory.check();
-	// emit is exclusively fixture construction. Instrumentation must preserve
-	// this exact collected cell, including its parameters and raw bindings.
+	// Build the original fixture. Without query, instrumentation preserves
+	// this exact cell; query tests independently check the added read-port delta.
 	memory.emit();
 	if (legacy) {
 		auto cell = memory.cell;
@@ -92,6 +94,27 @@ static void fixture(RTLIL::Design *design, const std::string &mode)
 			cell->unsetParam(name);
 		cell->unsetPort(ID::RD_ARST); cell->unsetPort(ID::RD_SRST);
 	}
+	if (mode == "z-init") {
+		auto data = memory.cell->getParam(ID::INIT);
+		for (int bit = (size - 1) * width; bit < size * width; bit++) data.set(bit, RTLIL::State::Sz);
+		memory.cell->setParam(ID::INIT, data);
+	}
+	if (mode == "multiple") {
+		Mem extra(module, RTLIL::escape_id("zarray"), 13, 5, 3);
+		extra.packed = true;
+		MemRd rd;
+		rd.addr = port(module, "extra_addr", 3);
+		rd.data = port(module, "extra_data", 13, false);
+		rd.init_value = rd.arst_value = rd.srst_value = RTLIL::Const(RTLIL::State::Sx, 13);
+		extra.rd_ports.push_back(rd);
+		MemInit init;
+		init.addr = 5; init.en = RTLIL::Const(RTLIL::State::S1, 13);
+		for (int word : {0x1abc, 0x1234, 0x678}) init.data.append(RTLIL::Const(word, 13));
+		extra.inits.push_back(init);
+		extra.emit();
+	}
+	if (mode == "collision-addr" || mode == "collision-data")
+		module->addWire(RTLIL::escape_id(mode == "collision-addr" ? "cf_mem_0000_addr" : "cf_mem_0000_data"));
 	module->fixup_ports(); module->check();
 }
 
