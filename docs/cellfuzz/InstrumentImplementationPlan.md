@@ -1,8 +1,8 @@
 # CellFuzz：Yosys 侧插装实施计划
 
-状态：2026-11-04 根据已确认需求重排的工程草案。设计依据为 [InstrumentDesign.md](InstrumentDesign.md)。当前已实现 cellfilter 的共享图服务、选择/view 和会话快照交接；第二至第五步的命令与能力仍待实现。
+状态：2026-11-05 按已确认需求分阶段实施。设计依据为 [InstrumentDesign.md](InstrumentDesign.md)。当前已实现 cellfilter 的共享图服务、选择/view 和会话快照交接，以及 cellinstrument 的 2A 类型规划、2B 确定性静态契约和 3A 普通旁路物化；3B 的真实用例闭环和第四、第五步仍待交付。
 
-阶段进展：1A 见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)，1B/1C 见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)。第一步的共享服务和结果交接已交付；第二至第五步仍待实现。
+阶段进展：1A 见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)，1B/1C 见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)，2A 见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)，2B 见 [Stage2BManifest.md](Stage2BManifest.md)，3A 见 [Stage3AMaterialization.md](Stage3AMaterialization.md)。
 
 ## 1. 交付目标与顺序
 
@@ -39,7 +39,7 @@ passes/cmds/cellfuzz/
 tests/cellfuzz/                         小型 RTL、Yosys 脚本、产物检查
 ```
 
-文件随步骤增加，不提前建立空框架。共享源码沿用 `yosys_pass(cellfilter ...)` 组件编译一次，通过 `PROVIDES cellinstrument` 注册独立入口；仅实际调用其他 pass 时声明对应 REQUIRES。
+文件随步骤增加，不提前建立空框架。共享源码沿用 `yosys_pass(cellfilter ...)` 组件编译一次，通过 `PROVIDES cellinstrument` 注册独立入口；调用其他组件的 pass 或共享符号时声明对应 REQUIRES。2B 复用 Verilog 后端的标识符/保留字检查，因此声明 `REQUIRES write_verilog`，规划过程中不调用后端或修改设计。
 
 JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，不能只依赖文件打开成功。分析快照编码属于内部会话存储，不增加面向用户的选择文件解析接口。
 
@@ -85,6 +85,8 @@ JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，�
 
 ### 2A. 入口、预检与类型处理
 
+实现说明：[阶段 2A：cellinstrument 入口、预检与类型规划](Stage2ATypePlanning.md)。2A 原始产物为 `stage: type-planning` 的类型计划；2B 将只读产物升级为 `stage: observation-planning` 的完整图与位段契约。3A 已开放省略 `-plan-only` 的正式物化路径。
+
 - 新入口只接受观测和布局配置：`-manifest`、`-plan-only`、`-mem-access on|off`、`-mem-content off|query`、`-chunk-width`、`-prefix`。建议默认块宽 256、前缀 cf。
 - 要求恰好一个已展开 top、whole-module selection、无 process/未收集 memory、无重复插装，并加载该 top 的有效分析快照。
 - 普通组合 cell 全输出必选；mux 家族额外选择信号必选。覆盖 `$mux/$pmux/$bmux/$demux/$bwmux` 及设计文档中列出的内建门级 mux，不按 S 名称猜测类型。
@@ -95,7 +97,9 @@ JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，�
 
 ### 2B. 确定性布局与静态图输出
 
-- 按稳定对象/端口顺序分配快照内 ID 和 monitor ID。每个 item 独立布局，支持跨块和任意位宽，验证位段完整覆盖及目标互不重叠。
+实现说明：[阶段 2B：确定性布局与静态图输出](Stage2BManifest.md)。已实现 `transport.h/.cc`、`manifest.h/.cc` 及独立读回测试。
+
+- 按稳定对象/端口顺序分配导出 ID 和 monitor ID，同时保存 `analysis_*_id` 对应原快照；不修改原分析 ID。每个 item 独立布局，支持跨块和任意位宽，验证位段完整覆盖及目标互不重叠。
 - 默认输出完整 CellGraph 快照，保留未观测对象和原因；原图连接、selection 与折叠 view 分别登记。冻结原图，避免新增接口被当成原功能对象。
 - 保存类型/参数/来源、有序 raw/canonical bit 绑定、引用 wire 的声明索引信息，以及 items/transport/memory 描述。参数/常量用位宽加字符串保留 X/Z。
 - 输出 `status: planned`，无 RTLIL 修改或成功标记；规划结果和临时绑定仅在命令生命周期内有效。
@@ -112,14 +116,16 @@ JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，�
 
 ### 3A. 信号绑定与物化
 
+实现说明：[阶段 3A：信号绑定与物化](Stage3AMaterialization.md)。`cellinstrument -manifest <file>` 已创建普通观测接口，`-plan-only` 仍为只读路径；两条路径共用原图、类型和布局预检。
+
 - 从已检查计划的原 SigSpec 创建 `cf_obs_*` 输出块并连续连接，Q 直接旁路；末块实际宽度，空计划不创建零宽端口。
 - 检查受控 ASCII 名称、语言保留字、已有/生成名称和 Verilator 保留前缀冲突；调用 fixup_ports 并核对实际端口、RTLIL 和计划。
-- 正式插装开始使原分析结果失效；成功检查后设置模块插装标记，输出 `status: materialized`。plan-only 后仍可正式插装，正式插装后拒绝再次物化。
-- manifest 使用同目录临时文件，确认写入和关闭成功后替换。普通文件错误尽量在物化前发现；物化后失败要求丢弃本次 Design 并重跑分析。
+- 正式插装开始使原分析结果失效；成功检查并发布后设置模块插装标记，输出 `status: materialized`、`stage: observation-materialization`。plan-only 后仍可正式插装，正式插装后拒绝再次物化。
+- 原 module 的完整 RTLIL 检查与 manifest 的同目录临时文件 write/flush/close 都在物化前完成；物化后检查新增端口、原接口顺序与实际源连接，确认成功再 rename 发布。物化后失败清理临时文件、没有成功标记，并要求丢弃本次 Design、重新加载 prepared 设计后重跑分析。
 
 ### 3B. Ibex 组合逻辑闭环和 register 补充
 
-- 以 `ibex_branch_predict` 为首个真实用例，覆盖其输出与 pmux S。提供可独立获取的测试夹具/获取说明，避免回归依赖本机绝对路径。
+- 以 `ibex_controller` 为首个真实用例，覆盖其输出与 pmux S。提供可独立获取的测试夹具/获取说明，避免回归依赖本机绝对路径。
 - 测试从新增接口值按 manifest 独立解包，与原 RTLIL 源位比较；同时检查原功能输出保持一致。采用 Yosys eval/SAT/等价检查等合适手段。
 - 小型专用 RTL 补充多输出 cell、不同 mux 选择向量、register Q、初值、正负沿和受支持的异步控制/latch；接口提供源值，不声称已实现逐事件采集。
 

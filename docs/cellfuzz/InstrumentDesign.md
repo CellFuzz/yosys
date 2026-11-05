@@ -1,8 +1,8 @@
 # CellFuzz：Yosys 侧观测插装设计
 
-状态：2026-11-04 需求讨论后的设计草案。当前 `cellfilter` 已实现 node 类型配置、region 选择策略、共享选择/view 及会话内分析结果交接；`cellinstrument` 和静态描述导出尚未实现，相关接口仍为拟议接口。
+状态：2026-11-05 按已确认设计分阶段实施。当前 `cellfilter` 已实现 node 类型配置、region 选择策略、共享选择/view 及会话内分析结果交接；`cellinstrument` 已实现 2A 类型规划、2B 确定性静态契约和 3A 普通旁路物化。3B 的真实用例闭环及 memory 能力仍待后续阶段。
 
-阶段进展：共享服务见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)；会话快照、发布和恢复绑定见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)。这两项覆盖实施计划的第一步，不代表后续插装阶段完成。
+阶段进展：共享服务见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)；会话快照、发布和恢复绑定见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)；类型规划见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)；静态 schema 见 [Stage2BManifest.md](Stage2BManifest.md)；物化与失败边界见 [Stage3AMaterialization.md](Stage3AMaterialization.md)。默认命令输出 `status: materialized`、`stage: observation-materialization`；`-plan-only` 输出 `status: planned`、`stage: observation-planning`。
 
 ## 1. 目标和本次边界
 
@@ -223,7 +223,7 @@ monitor_id, item_lsb, port_name, port_lsb, width
 
 原有连接完整导出；top-k view 中的折叠连接放在独立的 `view` 中，不能替代原图。`bit_count` 仅是统计，折叠边也不是逐 bit 功能依赖。端口源绑定保留有序 bit 引用，供精确观测和别名解释使用。
 
-建议静态契约如下，字段细节随第二步的可逆性用例固定：
+2B/3A 共用下列静态契约，字段编码和 ID 命名空间见 [Stage2BManifest.md](Stage2BManifest.md)。正式物化保持冻结的原 graph/selection/view/items；新增实际输出仍只在 transport 登记。memory 业务语义与内容查询随后续阶段扩充：
 
 | 字段 | 内容 |
 | --- | --- |
@@ -233,11 +233,11 @@ monitor_id, item_lsb, port_name, port_lsb, width
 | `graph` | cell、原 module port、cell port、引用的 wire、原图连接、来源和状态 |
 | `selection` / `view` | 明确对象集合、region 说明及展示连接 |
 | `items` | monitor ID、owner、源端口、role、位宽、源绑定 |
-| `memories` | 原业务端口、静态语义和可选内容查询接口 |
+| `memories` | 当前保留原 cell/port、参数与未观测原因；后续扩充业务语义和查询接口 |
 | `transport` | 新增顶层端口及 item 位段 |
 | `diagnostics` / `summary` | 未观测原因、支持限制、数量与总位宽 |
 
-图内 ID 和 monitor ID 属于本次分析/导出；同时保存无歧义的模块/对象原名、类型、参数和可用来源属性。名字或来源缺失有明确表示。按稳定顺序分配 ID，两个 pass 使用同一套对象关联。
+图内 ID 和 monitor ID 属于本次分析/导出；同时保存无歧义的模块/对象原名、类型、参数和可用来源属性。来源缺失时属性键不存在。2B 按原名排序分配连续导出 ID，并保留 `analysis_cell_id` / `analysis_port_id` / `analysis_connection_id` / `analysis_region_id` 对应原快照；所有导出引用使用同一套导出 ID，不重排或修改 live RTLIL。
 
 位向量参数和常量使用位宽加字符串表示，保留 X/Z；wire 记录宽度、声明索引信息，bit 绑定使用 RTLIL 逻辑偏移。新增观测端口放入 transport，不混入插装前功能图。
 
@@ -254,15 +254,15 @@ monitor_id, item_lsb, port_name, port_lsb, width
   → 校验结构摘要并恢复对象绑定
   → 冻结原图与来源、生成 MonitorPlan
   → 类型支持/命名/位宽/memory 约束检查和布局
-  → 准备临时输出
+  → 检查原 RTLIL，完整写入并关闭临时 manifest
   → 物化普通旁路与可选 memory 查询
-  → 检查实际接口和 RTLIL
-  → 写入成功插装标记并发布 materialized manifest
+  → 检查实际新增接口和源绑定
+  → 发布 materialized manifest，写入成功插装标记
 ```
 
 MonitorPlan 只描述源、role、静态类型语义、查询能力和布局，不包含首版尚未决定的运行时事件模型。`-plan-only` 完成相同预检并发布 planned manifest，保持 RTLIL 和模块端口不变。
 
-manifest 先写入同目录临时文件，确认写入、flush、close 成功后再原子替换。物化前可发现的错误必须提前报告；物化开始后不承诺整个 Design 自动回滚，失败时要求重新加载 prepared 设计并重跑 cellfilter。物化或最终检查失败不发布新正式 manifest，也不设置成功标记；最终文件发布失败时命令失败，当前 Design 同样应丢弃。
+manifest 先写入同目录临时文件，确认写入、flush、close 成功后再物化，最终检查成功后原子替换。原 module 的完整 RTLIL 检查放在临时文件创建之前，因为其致命断言不能通过命令异常清理；新增接口与逐段绑定则在物化后独立校验。物化前可发现的错误必须提前报告；物化开始后不承诺整个 Design 自动回滚，失败时清理临时文件并要求重新加载 prepared 设计、重跑 cellfilter。物化或最终检查失败不发布新正式 manifest，也不设置成功标记；最终文件发布失败时命令失败，当前 Design 同样应丢弃。成功标记在发布成功后设置，避免发布失败留下成功状态。
 
 `check -assert` 用于 RTLIL 检查；导出支持性还需实际 `write_verilog` 验证。Verilator lint/编译可作为接口可用性的辅助验证，不意味着交付 Verilator 侧采集系统。
 

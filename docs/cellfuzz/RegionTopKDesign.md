@@ -137,7 +137,7 @@ cellfilter -nodes mem -topk 3 -dot memories.dot
 
 ## 9. 与独立插装 pass 的对接计划
 
-当前 cellfilter 已实现同一 Design 的会话内结果保存；独立插装 pass 仍待后续交付。
+当前 cellfilter 已实现同一 Design 的会话内结果保存；独立 cellinstrument 已提供 2A 类型规划入口，见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)。完整图/位段导出与 RTLIL 插装仍待后续交付。
 
 构图、选择和 view 已抽取到 `passes/cmds/cellfuzz/`，见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)；快照编码、发布和恢复验收见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)。
 

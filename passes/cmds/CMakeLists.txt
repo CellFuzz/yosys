@@ -221,8 +221,18 @@ yosys_pass(symfpu
 )
 yosys_pass(cellfilter
 	cellfilter.cc
+	cellinstrument.cc
 	cellfuzz/cellgraph.cc
 	cellfuzz/selection.cc
 	cellfuzz/analysis_snapshot.cc
 	cellfuzz/structural_digest.cc
+	cellfuzz/monitor_plan.cc
+	cellfuzz/artifact_io.cc
+	cellfuzz/transport.cc
+	cellfuzz/manifest.cc
+	cellfuzz/instrument.cc
+	PROVIDES
+		cellinstrument
+	REQUIRES
+		write_verilog
 )
