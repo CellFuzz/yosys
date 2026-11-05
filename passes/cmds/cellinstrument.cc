@@ -21,7 +21,8 @@ struct CellInstrumentPass : Pass {
 		log("    cellinstrument -manifest <file> [-plan-only] [options]\n");
 		log("\n");
 		log("Validate the current whole selected top against its cellfilter snapshot.\n");
-		log("Plan all combinational outputs, mux selectors and register Q signals.\n");
+		log("Plan all combinational outputs, mux selectors, register Q and enabled\n");
+		log("memory business signals from their original read/write ports.\n");
 		log("Write the complete original graph, selection/view, sources and bit layout\n");
 		log("as a JSON manifest. By default, add top-level outputs and continuous bypasses,\n");
 		log("invalidate the analysis batch and publish status materialized on success.\n");
@@ -37,7 +38,7 @@ struct CellInstrumentPass : Pass {
 		log("        business memory observation (default: on)\n");
 		log("    -mem-content off|query\n");
 		log("        memory content observation (default: off)\n");
-		log("        enabled memory capabilities are not yet implemented\n");
+		log("        content query is not yet implemented for selected memories\n");
 		log("    -chunk-width <bits>\n");
 		log("        positive transport width limit (default: 256)\n");
 		log("    -prefix <name>\n");

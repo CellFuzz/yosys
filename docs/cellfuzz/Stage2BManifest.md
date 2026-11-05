@@ -4,6 +4,8 @@
 
 后续状态：3A 已完成普通旁路物化，沿用本页原图与布局编码；正式产物改为 `status: materialized`、`stage: observation-materialization`，原图保持冻结值。物化、暂存发布和失败边界见 [Stage3AMaterialization.md](Stage3AMaterialization.md)。本页记录 2B 的只读交付。
 
+第四步已在 schema v1 中增加 memory_access role、item.port_lsb 与 memory 业务静态字段，见 [Stage4MemoryAccess.md](Stage4MemoryAccess.md)。原普通项仍覆盖完整源端口且 port_lsb 为 0；下文中 memory 能力拒绝与占位描述记录 2B 当时的交付状态。
+
 ## 接口与实施约定
 
 `cellinstrument -plan-only -manifest monitor.json` 从当前 Design 恢复分析与类型计划，再生成布局并原子发布 `status: planned`、`stage: observation-planning` 的 manifest。默认 memory 开关 on/off、块宽 256、前缀 cf 沿用 2A；已选 memory 请求未交付能力仍失败。命令不修改 RTLIL、不设置成功标记、不消耗分析批次。

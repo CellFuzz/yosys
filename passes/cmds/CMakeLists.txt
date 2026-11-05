@@ -227,6 +227,7 @@ yosys_pass(cellfilter
 	cellfuzz/analysis_snapshot.cc
 	cellfuzz/structural_digest.cc
 	cellfuzz/monitor_plan.cc
+	cellfuzz/memory_access.cc
 	cellfuzz/artifact_io.cc
 	cellfuzz/transport.cc
 	cellfuzz/manifest.cc

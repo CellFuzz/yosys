@@ -49,7 +49,11 @@ struct TestCellFuzzReference : Pass {
 			covered.emplace_back(width, false);
 			if (args[1] == "gold") {
 				auto owner = module->cell(RTLIL::IdString(item["cell"].string_value()));
-				log_assert(owner && owner->getPort(RTLIL::IdString(item["port"].string_value())) == values.back());
+				log_assert(owner);
+				auto raw = owner->getPort(RTLIL::IdString(item["port"].string_value()));
+				int offset = item["port_lsb"].int_value();
+				log_assert(offset >= 0 && offset <= GetSize(raw) && width <= GetSize(raw) - offset);
+				log_assert(raw.extract(offset, width) == values.back());
 			}
 		}
 		if (args[1] == "gate") {

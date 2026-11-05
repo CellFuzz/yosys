@@ -79,7 +79,9 @@ with tempfile.TemporaryDirectory(prefix="cellfuzz-materialize-") as tmp:
     run("read_verilog stateful.v; hierarchy -top stateful; proc; memory_collect; cellfilter; " +
         verify + command + " -mem-access off")
     run("read_verilog stateful.v; hierarchy -top stateful; proc; memory_collect; cellfilter; " +
-        command, error="memory observation not yet implemented")
+        verify + command)
+    run("read_verilog stateful.v; hierarchy -top stateful; proc; memory_collect; cellfilter; " +
+        command + " -mem-content query", error="memory content query not yet implemented")
 
     # RTLIL's full structural check exits on malformed cell parameters. It
     # must run before an artifact or any output wire exists, since that fatal

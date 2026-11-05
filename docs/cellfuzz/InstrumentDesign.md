@@ -1,8 +1,10 @@
 # CellFuzz：Yosys 侧观测插装设计
 
-状态：2026-11-05 按已确认设计分阶段实施。当前 `cellfilter` 已实现 node 类型配置、region 选择策略、共享选择/view 及会话内分析结果交接；`cellinstrument` 已实现 2A 类型规划、2B 确定性静态契约、3A 普通旁路物化和 3B Ibex 实际值闭环及 register 补充验收。memory 能力仍待后续阶段。
+状态：2026-11-05 按已确认设计分阶段实施。当前 `cellfilter` 已实现 node 类型配置、region 选择策略、共享选择/view 及会话内分析结果交接；`cellinstrument` 已实现 2A 类型规划、2B 确定性静态契约、3A 普通旁路物化、3B Ibex 实际值闭环及 register 补充验收，以及第四步 Memory 业务端口观测。内容查询仍待第五步交付。
 
 阶段进展：共享服务见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)；会话快照、发布和恢复绑定见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)；类型规划见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)；静态 schema 见 [Stage2BManifest.md](Stage2BManifest.md)；物化与失败边界见 [Stage3AMaterialization.md](Stage3AMaterialization.md)；实际值回归及夹具来源见 [Stage3BValueRoundtrip.md](Stage3BValueRoundtrip.md)。默认命令输出 `status: materialized`、`stage: observation-materialization`；`-plan-only` 输出 `status: planned`、`stage: observation-planning`。
+
+Memory 默认业务观测 on、内容查询 off；业务口静态字段、原端口切片及专项验收见 [Stage4MemoryAccess.md](Stage4MemoryAccess.md)。
 
 ## 1. 目标和本次边界
 
@@ -171,6 +173,8 @@ mux 类型采用明确分派：
 
 输出表示当前信号值。一次读写是否已经提交、应当何时采样，由未来采集层判断。同步读口的保持值是额外时序状态，单独读取数组不能代替它；关闭业务观测时应明确记录这一覆盖减少。
 
+第四步已实现上述业务观测，逐逻辑端口字段生成 `memory_access` item；原 collected GraphPort 的切片由 item.port_lsb 与 width 指定。无效 clock、恒无效 reset、legacy 缺失的 reset 和零宽地址只记录静态源及原因，不创建零宽或无效控制项。宽端口保留 helper 逻辑编号、原 packed 起点及分词数，掩码按逻辑写口编号解释；完整 packed 参数仍保存在原图。原 memory cell 不重写，负 offset 的业务观测可用；内容查询的地址限制留到第五步。
+
 ### 5.2 内容查询
 
 每个启用 query 的 memory 增加一个单字异步只读口，通过 `Mem::rd_ports` 与 `Mem::emit()` 连接实际数组：
@@ -223,7 +227,7 @@ monitor_id, item_lsb, port_name, port_lsb, width
 
 原有连接完整导出；top-k view 中的折叠连接放在独立的 `view` 中，不能替代原图。`bit_count` 仅是统计，折叠边也不是逐 bit 功能依赖。端口源绑定保留有序 bit 引用，供精确观测和别名解释使用。
 
-2B/3A 共用下列静态契约，字段编码和 ID 命名空间见 [Stage2BManifest.md](Stage2BManifest.md)。正式物化保持冻结的原 graph/selection/view/items；新增实际输出仍只在 transport 登记。memory 业务语义与内容查询随后续阶段扩充：
+下列静态契约沿用 2B/3A 的字段编码和 ID 命名空间，见 [Stage2BManifest.md](Stage2BManifest.md)。第四步增加原端口切片和 memory 业务语义；正式物化保持冻结的原 graph/selection/view/items，新增实际输出仍只在 transport 登记，内容查询留到第五步：
 
 | 字段 | 内容 |
 | --- | --- |
@@ -232,8 +236,8 @@ monitor_id, item_lsb, port_name, port_lsb, width
 | `config` | memory 开关、块宽、前缀等实际生效观测配置 |
 | `graph` | cell、原 module port、cell port、引用的 wire、原图连接、来源和状态 |
 | `selection` / `view` | 明确对象集合、region 说明及展示连接 |
-| `items` | monitor ID、owner、源端口、role、位宽、源绑定 |
-| `memories` | 当前保留原 cell/port、参数与未观测原因；后续扩充业务语义和查询接口 |
+| `items` | monitor ID、owner、源端口及 port_lsb、role、位宽、源绑定；memory_access 可覆盖原端口切片 |
+| `memories` | 原 cell/port、参数、逻辑读写口、源切片及 monitor 引用、初始化/控制/优先级/碰撞语义、关闭原因与保持状态覆盖；查询接口后续扩充 |
 | `transport` | 新增顶层端口及 item 位段 |
 | `diagnostics` / `summary` | 未观测原因、支持限制、数量与总位宽 |
 

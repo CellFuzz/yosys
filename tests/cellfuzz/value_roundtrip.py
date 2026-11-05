@@ -98,7 +98,7 @@ class Roundtrip:
         assert result.returncode == 0, f"{script}:\n{result.stdout[-3000:]}\n{result.stderr}"
         return result.stdout
 
-    def prepare(self, name, setup, top, options="", selection="", mapped=False):
+    def prepare(self, name, setup, top, options="", selection="", mapped=False, gold_verilog=False):
         directory = self.work / name
         directory.mkdir()
         reportfile = directory / "monitor.json"
@@ -110,14 +110,17 @@ class Roundtrip:
                  f"write_verilog {directory}/actual.v")
         report = json.loads(reportfile.read_text())
         planned = json.loads((directory / "planned.json").read_text())
-        for key in ("analysis_id", "graph", "items", "registers", "transport", "selection", "view"):
+        for key in ("analysis_id", "graph", "items", "registers", "memories", "transport", "selection", "view"):
             assert report[key] == planned[key], key
         graph = report["graph"]
         for item in report["items"]:
             cell, port = graph["cells"][item["cell_id"]], graph["ports"][item["port_id"]]
             assert cell["name"] == item["cell"] and cell["type"] == item["type"] and cell["selected"]
             assert port["cell_id"] == cell["id"] and port["name"] == item["port"]
-            assert port["raw"] == item["source"] and port["width"] == item["width"] and port["observed"]
+            offset = item["port_lsb"]
+            assert port["raw"][offset:offset + item["width"]] == item["source"] and port["observed"]
+            if item["role"] != "memory_access":
+                assert offset == 0 and port["width"] == item["width"]
         gold = (f"read_rtlil {directory}/original.il; rename {top} gold; "
                 f"test_cellfuzz_reference gold {reportfile} gold item_; ")
         # Formal uses the original RTLIL cells, while the value tests consume
@@ -125,6 +128,13 @@ class Roundtrip:
         self.run(gold + f"read_rtlil {directory}/actual.il; rename {top} gate; "
                  f"test_cellfuzz_reference gate {reportfile} gate item_; write_rtlil {directory}/formal.il")
         value_gold = gold + ("techmap; techmap -autoproc -map +/simcells.v; opt_clean; " if mapped else "")
+        if gold_verilog:
+            # sim requires asynchronous memory reads; memory_nordff cannot
+            # directly extract a collected read port with both resets. Expose
+            # raw source references first, then lower this test-only model
+            # through behavioral Verilog. Independent state oracles cover it.
+            value_gold += (f"write_verilog {directory}/gold.v; design -reset; "
+                           f"read_verilog {directory}/gold.v; proc; ")
         self.run(value_gold + f"read_verilog {directory}/actual.v; rename {top} gate; setattr -mod -unset top; hierarchy -check; proc; "
                  f"check -assert; write_rtlil {directory}/pair.il")
         original = json.loads((directory / "original.json").read_text())["modules"][top]
@@ -138,7 +148,7 @@ class Roundtrip:
                  "miter -equiv -flatten gold gate miter; hierarchy -top miter; "
                  "sat " + ("-seq 4 -set-init-zero " if sequential else "") + "-prove trigger 0 -verify")
 
-    def simulate(self, case, vectors):
+    def simulate(self, case, vectors, preprocess=""):
         directory, report, original = case
         inputs = {name: len(port["bits"]) for name, port in original["ports"].items() if port["direction"] == "input"}
         outputs = {name: len(port["bits"]) for name, port in original["ports"].items() if port["direction"] == "output"}
@@ -168,7 +178,7 @@ class Roundtrip:
         lines += ["gold gold (" + ", ".join(gold) + ");", "gate gate (" + ", ".join(gate) + ");", "endmodule"]
         (directory / "bench.v").write_text("\n".join(lines) + "\n")
         self.run(f"read_rtlil {directory}/pair.il; read_verilog {directory}/bench.v; hierarchy -top bench; "
-                 f"proc; flatten; check -assert; sim -clock driver -n {len(vectors)-1} -vcd {directory}/trace.vcd -q")
+                 f"proc; flatten; {preprocess} check -assert; sim -clock driver -n {len(vectors)-1} -vcd {directory}/trace.vcd -q")
         samples = vcd_samples(directory / "trace.vcd")
         for timestamp, values in samples:
             blocks = {port["name"]: values[f"a_block{index}"] for index, port in enumerate(report["transport"]["ports"])}

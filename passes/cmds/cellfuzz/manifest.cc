@@ -122,7 +122,11 @@ Json planned_manifest(const RestoredAnalysis &analysis, const MonitorPlan &plan,
 	// diagnostic path as all other manifest contract violations.
 	for (const auto &item : plan.items) {
 		if (item.cell < 0 || item.cell >= GetSize(graph.cells) || item.port < 0 || item.port >= GetSize(graph.ports) ||
-				graph.ports[item.port].cell != item.cell || graph.ports[item.port].raw_signal != item.source ||
+				graph.ports[item.port].cell != item.cell || item.port_lsb < 0 ||
+				item.port_lsb > GetSize(graph.ports[item.port].raw_signal) ||
+				GetSize(item.source) > GetSize(graph.ports[item.port].raw_signal) - item.port_lsb ||
+				graph.ports[item.port].raw_signal.extract(item.port_lsb, GetSize(item.source)) != item.source ||
+				(item.role != MonitorRole::MEMORY_ACCESS && (item.port_lsb != 0 || graph.ports[item.port].raw_signal != item.source)) ||
 				!analysis.selection.selected_cells.count(item.cell))
 			log_cmd_error("cellinstrument: observation source does not match the frozen graph.\n");
 	}
@@ -161,6 +165,8 @@ Json planned_manifest(const RestoredAnalysis &analysis, const MonitorPlan &plan,
 	}
 	std::map<int, std::string> omitted;
 	for (const auto &entry : plan.unobserved) omitted[entry.cell] = entry.reason;
+	std::map<GraphCellId, const MemoryInfo *> memory_info;
+	for (const auto &info : plan.memories) memory_info.emplace(info.cell, &info);
 	Json::array cells, ports, wires, connections, memories;
 	for (auto id : ids.cell_order) {
 		const auto &cell = graph.cells[id];
@@ -174,10 +180,11 @@ Json planned_manifest(const RestoredAnalysis &analysis, const MonitorPlan &plan,
 		if (cell.node_type == NodeType::MEMORY) {
 			std::vector<int> memory_ports = cell.inputs;
 			memory_ports.insert(memory_ports.end(), cell.outputs.begin(), cell.outputs.end());
-			memories.push_back(Json::object{{"cell_id", ids.cells[id]}, {"name", cell.name.str()}, {"type", cell.type.str()},
+			auto entry = memory_access_record(*memory_info.at(id), plan, ids.ports).object_items();
+			entry.insert({{"cell_id", ids.cells[id]}, {"name", cell.name.str()}, {"type", cell.type.str()},
 					{"selected", bool(analysis.selection.selected_cells.count(id))}, {"observation_reason", reason},
-					{"ports", remap(memory_ports, ids.ports)}, {"parameters", values(cell.parameters)},
-					{"access_observed", false}, {"content_query", false}});
+					{"ports", remap(memory_ports, ids.ports)}, {"parameters", values(cell.parameters)}});
+			memories.push_back(entry);
 		}
 	}
 	for (auto id : ids.port_order) {
@@ -238,7 +245,7 @@ Json planned_manifest(const RestoredAnalysis &analysis, const MonitorPlan &plan,
 				{"port_name", segment.port_name}, {"port_lsb", segment.port_lsb}, {"width", segment.width}});
 	report["transport"] = Json::object{{"ports", transport_ports}, {"segments", segments}, {"total_bits", double(layout.total_bits)}};
 	report["memories"] = memories;
-	report["diagnostics"] = Json::array{"planned only; no interface has been materialized", "memory access and content query are not implemented"};
+	report["diagnostics"] = Json::array{"planned only; no interface has been materialized", "memory content query is not implemented"};
 	report["summary"] = Json::object{{"cells", GetSize(cells)}, {"ports", GetSize(ports)}, {"connections", GetSize(connections)},
 			{"items", GetSize(items)}, {"observed_cells", GetSize(observed_cells)}, {"total_bits", double(layout.total_bits)}};
 	return report;
@@ -250,7 +257,7 @@ Json materialized_manifest(const Json &planned)
 	report["status"] = "materialized";
 	report["stage"] = "observation-materialization";
 	report["diagnostics"] = Json::array{"ordinary observation outputs materialized; no sampling state added",
-			"memory access and content query are not implemented"};
+			"memory content query is not implemented"};
 	return report;
 }
 

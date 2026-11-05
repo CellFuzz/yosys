@@ -147,7 +147,11 @@ struct TestCellFuzzMaterialize : Pass {
 			auto item = report["items"][segment["monitor_id"].int_value()];
 			auto expected = source(item["source"], module);
 			auto cell = module->cell(RTLIL::IdString(item["cell"].string_value()));
-			log_assert(cell && cell->getPort(RTLIL::IdString(item["port"].string_value())) == expected);
+			log_assert(cell);
+			auto raw = cell->getPort(RTLIL::IdString(item["port"].string_value()));
+			int offset = item["port_lsb"].int_value();
+			log_assert(offset >= 0 && offset <= GetSize(raw) && GetSize(expected) <= GetSize(raw) - offset);
+			log_assert(raw.extract(offset, GetSize(expected)) == expected);
 			auto wire = module->wire(RTLIL::escape_id(segment["port_name"].string_value()));
 			for (int bit = 0; bit < segment["width"].int_value(); bit++) {
 				log_assert(actual.at(RTLIL::SigBit(wire, segment["port_lsb"].int_value() + bit)) == expected[segment["item_lsb"].int_value() + bit]);

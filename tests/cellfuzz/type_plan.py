@@ -73,9 +73,11 @@ with tempfile.TemporaryDirectory(prefix="cellfuzz-types-") as tmp:
     # Memory defaults stay on/off. Only selected memories require the staged
     # capabilities; disabled memories never leak into ordinary output items.
     memory = "read_verilog stateful.v; hierarchy -top stateful; proc; memory_collect; "
-    for options in ("", "-mem-access on -mem-content off", "-mem-access off -mem-content query",
-                    "-mem-access on -mem-content query"):
-        run(memory + "cellfilter; " + plan_command + " " + options, error="memory observation not yet implemented")
+    for options in ("", "-mem-access on -mem-content off"):
+        run(memory + "cellfilter; " + plan_command + " " + options)
+        assert any(item["role"] == "memory_access" for item in json.loads((work / "plan.json").read_text())["items"])
+    for options in ("-mem-access off -mem-content query", "-mem-access on -mem-content query"):
+        run(memory + "cellfilter; " + plan_command + " " + options, error="memory content query not yet implemented")
     run(memory + "cellfilter; " + plan_command + " -mem-access off")
     mem_plan = json.loads((work / "plan.json").read_text())
     assert any(cell["reason"] == "memory_observation_disabled" for cell in mem_plan["unobserved_cells"])

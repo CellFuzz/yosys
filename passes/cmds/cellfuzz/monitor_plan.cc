@@ -111,6 +111,7 @@ static const char *role_name(MonitorRole role)
 	case MonitorRole::OUTPUT: return "output";
 	case MonitorRole::MUX_SELECT: return "mux_select";
 	case MonitorRole::REGISTER_Q: return "register_q";
+	case MonitorRole::MEMORY_ACCESS: return "memory_access";
 	}
 	log_abort();
 }
@@ -199,9 +200,8 @@ MonitorPlan create_monitor_plan(const RestoredAnalysis &analysis, const MonitorO
 			continue;
 		}
 		if (cell.node_type == NodeType::MEMORY) {
-			if (options.mem_access || options.mem_query)
-				cell_error(cell, "requests memory observation not yet implemented; use -mem-access off -mem-content off");
-			plan.unobserved.push_back({cell.id, "memory_observation_disabled"});
+			if (!options.mem_access && !options.mem_query)
+				plan.unobserved.push_back({cell.id, "memory_observation_disabled"});
 		}
 		if (registers.count(cell.id))
 			plan.registers.push_back(registers.at(cell.id));
@@ -226,6 +226,12 @@ MonitorPlan create_monitor_plan(const RestoredAnalysis &analysis, const MonitorO
 			plan.items.push_back({cell.id, id, MonitorRole::MUX_SELECT, port.raw_signal});
 		}
 	}
+	plan_memory_access(analysis, plan);
+	std::sort(plan.items.begin(), plan.items.end(), [&](const auto &a, const auto &b) {
+		return std::make_tuple(graph.cells[a.cell].name.str(), graph.ports[a.port].name.str(), a.port_lsb, a.role) <
+				std::make_tuple(graph.cells[b.cell].name.str(), graph.ports[b.port].name.str(), b.port_lsb, b.role);
+	});
+	bind_memory_monitors(plan);
 	return plan;
 }
 
@@ -238,7 +244,7 @@ Json MonitorPlan::type_report(const RestoredAnalysis &analysis) const
 		const auto &port = graph.ports.at(item.port);
 		observations.push_back(Json::object{{"cell_id", item.cell}, {"port_id", item.port},
 				{"cell", cell.name.str()}, {"type", cell.type.str()}, {"port", port.name.str()},
-				{"role", role_name(item.role)}, {"width", GetSize(item.source)}, {"source", signal_record(item.source)}});
+				{"role", role_name(item.role)}, {"port_lsb", item.port_lsb}, {"width", GetSize(item.source)}, {"source", signal_record(item.source)}});
 	}
 	for (const auto &info : registers) {
 		const auto &ff = info.features;

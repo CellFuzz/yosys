@@ -1,8 +1,10 @@
 # CellFuzz：Yosys 侧插装实施计划
 
-状态：2026-11-05 按已确认需求分阶段实施。设计依据为 [InstrumentDesign.md](InstrumentDesign.md)。当前已实现 cellfilter 的共享图服务、选择/view 和会话快照交接，以及 cellinstrument 的 2A 类型规划、2B 确定性静态契约、3A 普通旁路物化和 3B Ibex 实际值闭环及 register 补充验收；第四、第五步仍待交付。
+状态：2026-11-05 按已确认需求分阶段实施。设计依据为 [InstrumentDesign.md](InstrumentDesign.md)。当前已实现 cellfilter 的共享图服务、选择/view 和会话快照交接，以及 cellinstrument 的 2A 类型规划、2B 确定性静态契约、3A 普通旁路物化、3B Ibex 实际值闭环及 register 补充验收和第四步 Memory 业务端口观测；第五步内容查询仍待交付。
 
 阶段进展：1A 见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)，1B/1C 见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)，2A 见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)，2B 见 [Stage2BManifest.md](Stage2BManifest.md)，3A 见 [Stage3AMaterialization.md](Stage3AMaterialization.md)，3B 见 [Stage3BValueRoundtrip.md](Stage3BValueRoundtrip.md)。
+
+第四步实现、schema 增补及验证边界见 [Stage4MemoryAccess.md](Stage4MemoryAccess.md)。
 
 ## 1. 交付目标与顺序
 
@@ -146,6 +148,8 @@ JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，�
 验收：同步/异步读、使能保持、reset、掩码写、多端口及宽端口描述和源绑定正确；开/关只影响预期观测项；实际业务端口与原图对应；原功能和存储更新保持。
 
 完成标志：默认命令可处理包含已选 memory 的设计，产出业务观测项。内容查询被显式请求时仍报告本阶段尚未交付。
+
+第四步已交付：只读 Mem helper 关联、逐逻辑业务字段的原图切片与 memory_access item、完整读写静态语义，以及既有旁路物化和原子发布。专项测试检查实际接口、原功能及数组状态，覆盖同步读保持、两种复位优先级、正负沿写、mask/priority、透明读/碰撞 X、宽口、legacy、零读/写口与正负 offset；内容查询拒绝及失败保护继续保留。
 
 ## 7. 第五步：Memory 内容查询
 

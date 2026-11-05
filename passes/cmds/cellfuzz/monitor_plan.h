@@ -2,6 +2,7 @@
 #define YOSYS_CELLFUZZ_MONITOR_PLAN_H
 
 #include "analysis_snapshot.h"
+#include "memory_access.h"
 #include "kernel/ff.h"
 
 YOSYS_NAMESPACE_BEGIN
@@ -15,13 +16,16 @@ struct MonitorOptions {
 	void validate() const;
 };
 
-enum class MonitorRole { OUTPUT, MUX_SELECT, REGISTER_Q };
+enum class MonitorRole { OUTPUT, MUX_SELECT, REGISTER_Q, MEMORY_ACCESS };
 
 struct MonitorItem {
 	GraphCellId cell = INVALID_CELL_ID;
 	PortId port = INVALID_PORT_ID;
 	MonitorRole role = MonitorRole::OUTPUT;
 	RTLIL::SigSpec source;
+	// Memory fields may occupy only a slice of a collected GraphPort.
+	// Ordinary items cover their complete original port, starting at zero.
+	int port_lsb = 0;
 };
 
 struct RegisterControl {
@@ -51,6 +55,7 @@ struct MonitorPlan {
 	MonitorOptions options;
 	std::vector<MonitorItem> items;
 	std::vector<RegisterInfo> registers;
+	std::vector<MemoryInfo> memories;
 	std::vector<UnobservedCell> unobserved;
 	// Internal type descriptions reused by the complete manifest serializer.
 	json11::Json type_report(const RestoredAnalysis &analysis) const;
