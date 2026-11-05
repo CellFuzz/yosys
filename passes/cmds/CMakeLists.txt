@@ -221,4 +221,8 @@ yosys_pass(symfpu
 )
 yosys_pass(cellfilter
 	cellfilter.cc
+	cellfuzz/cellgraph.cc
+	cellfuzz/selection.cc
+	cellfuzz/analysis_snapshot.cc
+	cellfuzz/structural_digest.cc
 )

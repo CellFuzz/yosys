@@ -1,0 +1,176 @@
+{
+  "": {
+    "objects": [
+      "$add$graph.v:7$8\\n$add\\nedge cell",
+      "$and$graph.v:6$4\\n$and\\nedge cell",
+      "$not$graph.v:2$1\\n$not\\nedge cell",
+      "$not$graph.v:6$5\\n$not\\nedge cell",
+      "$or$graph.v:7$6\\n$or\\nedge cell",
+      "$procdff$9\\n$dff\\nregister",
+      "$xor$graph.v:3$2\\n$xor\\nedge cell",
+      "$xor$graph.v:7$7\\n$xor\\nedge cell",
+      "a\\nmodule input",
+      "b\\nmodule input",
+      "clk\\nmodule input",
+      "y\\nmodule output",
+      "z\\nmodule output"
+    ],
+    "edges": [
+      ["$add$graph.v:7$8\\n$add\\nedge cell", "z\\nmodule output", "label=\"Y -> z (8 bits)\""],
+      ["$and$graph.v:6$4\\n$and\\nedge cell", "$not$graph.v:6$5\\n$not\\nedge cell", "label=\"Y -> A (8 bits)\""],
+      ["$not$graph.v:2$1\\n$not\\nedge cell", "$xor$graph.v:3$2\\n$xor\\nedge cell", "label=\"Y -> A (8 bits)\""],
+      ["$not$graph.v:6$5\\n$not\\nedge cell", "y\\nmodule output", "label=\"Y -> y (8 bits)\""],
+      ["$or$graph.v:7$6\\n$or\\nedge cell", "$add$graph.v:7$8\\n$add\\nedge cell", "label=\"Y -> A (8 bits)\""],
+      ["$procdff$9\\n$dff\\nregister", "$and$graph.v:6$4\\n$and\\nedge cell", "label=\"Q -> A (8 bits)\""],
+      ["$xor$graph.v:3$2\\n$xor\\nedge cell", "$procdff$9\\n$dff\\nregister", "label=\"Y -> D (8 bits)\""],
+      ["$xor$graph.v:7$7\\n$xor\\nedge cell", "$add$graph.v:7$8\\n$add\\nedge cell", "label=\"Y -> B (8 bits)\""],
+      ["a\\nmodule input", "$not$graph.v:2$1\\n$not\\nedge cell", "label=\"a -> A (8 bits)\""],
+      ["a\\nmodule input", "$or$graph.v:7$6\\n$or\\nedge cell", "label=\"a -> A (8 bits)\""],
+      ["a\\nmodule input", "$xor$graph.v:7$7\\n$xor\\nedge cell", "label=\"a -> A (8 bits)\""],
+      ["b\\nmodule input", "$and$graph.v:6$4\\n$and\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["b\\nmodule input", "$or$graph.v:7$6\\n$or\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["b\\nmodule input", "$xor$graph.v:3$2\\n$xor\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["b\\nmodule input", "$xor$graph.v:7$7\\n$xor\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["clk\\nmodule input", "$procdff$9\\n$dff\\nregister", "label=\"clk -> CLK\""]
+    ]
+  },
+  "-topk 1": {
+    "objects": [
+      "$add$graph.v:7$8\\n$add\\nedge cell",
+      "$and$graph.v:6$4\\n$and\\nedge cell",
+      "$procdff$9\\n$dff\\nregister",
+      "$xor$graph.v:3$2\\n$xor\\nedge cell",
+      "a\\nmodule input",
+      "b\\nmodule input",
+      "clk\\nmodule input",
+      "y\\nmodule output",
+      "z\\nmodule output"
+    ],
+    "edges": [
+      ["$add$graph.v:7$8\\n$add\\nedge cell", "z\\nmodule output", "label=\"Y -> z (8 bits)\""],
+      ["$and$graph.v:6$4\\n$and\\nedge cell", "y\\nmodule output", "style=dashed, color=\"#7f7f7f\", label=\"Y -> y (collapsed 1 cells)\""],
+      ["$procdff$9\\n$dff\\nregister", "$and$graph.v:6$4\\n$and\\nedge cell", "label=\"Q -> A (8 bits)\""],
+      ["$xor$graph.v:3$2\\n$xor\\nedge cell", "$procdff$9\\n$dff\\nregister", "label=\"Y -> D (8 bits)\""],
+      ["a\\nmodule input", "$add$graph.v:7$8\\n$add\\nedge cell", "style=dashed, color=\"#7f7f7f\", label=\"a -> A (collapsed 1 cells)\""],
+      ["a\\nmodule input", "$add$graph.v:7$8\\n$add\\nedge cell", "style=dashed, color=\"#7f7f7f\", label=\"a -> B (collapsed 1 cells)\""],
+      ["a\\nmodule input", "$xor$graph.v:3$2\\n$xor\\nedge cell", "style=dashed, color=\"#7f7f7f\", label=\"a -> A (collapsed 1 cells)\""],
+      ["b\\nmodule input", "$add$graph.v:7$8\\n$add\\nedge cell", "style=dashed, color=\"#7f7f7f\", label=\"b -> A (collapsed 1 cells)\""],
+      ["b\\nmodule input", "$add$graph.v:7$8\\n$add\\nedge cell", "style=dashed, color=\"#7f7f7f\", label=\"b -> B (collapsed 1 cells)\""],
+      ["b\\nmodule input", "$and$graph.v:6$4\\n$and\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["b\\nmodule input", "$xor$graph.v:3$2\\n$xor\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["clk\\nmodule input", "$procdff$9\\n$dff\\nregister", "label=\"clk -> CLK\""]
+    ]
+  },
+  "-topk 2": {
+    "objects": [
+      "$add$graph.v:7$8\\n$add\\nedge cell",
+      "$and$graph.v:6$4\\n$and\\nedge cell",
+      "$not$graph.v:2$1\\n$not\\nedge cell",
+      "$not$graph.v:6$5\\n$not\\nedge cell",
+      "$or$graph.v:7$6\\n$or\\nedge cell",
+      "$procdff$9\\n$dff\\nregister",
+      "$xor$graph.v:3$2\\n$xor\\nedge cell",
+      "a\\nmodule input",
+      "b\\nmodule input",
+      "clk\\nmodule input",
+      "y\\nmodule output",
+      "z\\nmodule output"
+    ],
+    "edges": [
+      ["$add$graph.v:7$8\\n$add\\nedge cell", "z\\nmodule output", "label=\"Y -> z (8 bits)\""],
+      ["$and$graph.v:6$4\\n$and\\nedge cell", "$not$graph.v:6$5\\n$not\\nedge cell", "label=\"Y -> A (8 bits)\""],
+      ["$not$graph.v:2$1\\n$not\\nedge cell", "$xor$graph.v:3$2\\n$xor\\nedge cell", "label=\"Y -> A (8 bits)\""],
+      ["$not$graph.v:6$5\\n$not\\nedge cell", "y\\nmodule output", "label=\"Y -> y (8 bits)\""],
+      ["$or$graph.v:7$6\\n$or\\nedge cell", "$add$graph.v:7$8\\n$add\\nedge cell", "label=\"Y -> A (8 bits)\""],
+      ["$procdff$9\\n$dff\\nregister", "$and$graph.v:6$4\\n$and\\nedge cell", "label=\"Q -> A (8 bits)\""],
+      ["$xor$graph.v:3$2\\n$xor\\nedge cell", "$procdff$9\\n$dff\\nregister", "label=\"Y -> D (8 bits)\""],
+      ["a\\nmodule input", "$add$graph.v:7$8\\n$add\\nedge cell", "style=dashed, color=\"#7f7f7f\", label=\"a -> B (collapsed 1 cells)\""],
+      ["a\\nmodule input", "$not$graph.v:2$1\\n$not\\nedge cell", "label=\"a -> A (8 bits)\""],
+      ["a\\nmodule input", "$or$graph.v:7$6\\n$or\\nedge cell", "label=\"a -> A (8 bits)\""],
+      ["b\\nmodule input", "$add$graph.v:7$8\\n$add\\nedge cell", "style=dashed, color=\"#7f7f7f\", label=\"b -> B (collapsed 1 cells)\""],
+      ["b\\nmodule input", "$and$graph.v:6$4\\n$and\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["b\\nmodule input", "$or$graph.v:7$6\\n$or\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["b\\nmodule input", "$xor$graph.v:3$2\\n$xor\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["clk\\nmodule input", "$procdff$9\\n$dff\\nregister", "label=\"clk -> CLK\""]
+    ]
+  },
+  "-topk 100": {
+    "objects": [
+      "$add$graph.v:7$8\\n$add\\nedge cell",
+      "$and$graph.v:6$4\\n$and\\nedge cell",
+      "$not$graph.v:2$1\\n$not\\nedge cell",
+      "$not$graph.v:6$5\\n$not\\nedge cell",
+      "$or$graph.v:7$6\\n$or\\nedge cell",
+      "$procdff$9\\n$dff\\nregister",
+      "$xor$graph.v:3$2\\n$xor\\nedge cell",
+      "$xor$graph.v:7$7\\n$xor\\nedge cell",
+      "a\\nmodule input",
+      "b\\nmodule input",
+      "clk\\nmodule input",
+      "y\\nmodule output",
+      "z\\nmodule output"
+    ],
+    "edges": [
+      ["$add$graph.v:7$8\\n$add\\nedge cell", "z\\nmodule output", "label=\"Y -> z (8 bits)\""],
+      ["$and$graph.v:6$4\\n$and\\nedge cell", "$not$graph.v:6$5\\n$not\\nedge cell", "label=\"Y -> A (8 bits)\""],
+      ["$not$graph.v:2$1\\n$not\\nedge cell", "$xor$graph.v:3$2\\n$xor\\nedge cell", "label=\"Y -> A (8 bits)\""],
+      ["$not$graph.v:6$5\\n$not\\nedge cell", "y\\nmodule output", "label=\"Y -> y (8 bits)\""],
+      ["$or$graph.v:7$6\\n$or\\nedge cell", "$add$graph.v:7$8\\n$add\\nedge cell", "label=\"Y -> A (8 bits)\""],
+      ["$procdff$9\\n$dff\\nregister", "$and$graph.v:6$4\\n$and\\nedge cell", "label=\"Q -> A (8 bits)\""],
+      ["$xor$graph.v:3$2\\n$xor\\nedge cell", "$procdff$9\\n$dff\\nregister", "label=\"Y -> D (8 bits)\""],
+      ["$xor$graph.v:7$7\\n$xor\\nedge cell", "$add$graph.v:7$8\\n$add\\nedge cell", "label=\"Y -> B (8 bits)\""],
+      ["a\\nmodule input", "$not$graph.v:2$1\\n$not\\nedge cell", "label=\"a -> A (8 bits)\""],
+      ["a\\nmodule input", "$or$graph.v:7$6\\n$or\\nedge cell", "label=\"a -> A (8 bits)\""],
+      ["a\\nmodule input", "$xor$graph.v:7$7\\n$xor\\nedge cell", "label=\"a -> A (8 bits)\""],
+      ["b\\nmodule input", "$and$graph.v:6$4\\n$and\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["b\\nmodule input", "$or$graph.v:7$6\\n$or\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["b\\nmodule input", "$xor$graph.v:3$2\\n$xor\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["b\\nmodule input", "$xor$graph.v:7$7\\n$xor\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["clk\\nmodule input", "$procdff$9\\n$dff\\nregister", "label=\"clk -> CLK\""]
+    ]
+  },
+  "-nodes none": {
+    "objects": [
+      "$add$graph.v:7$8\\n$add\\nedge cell",
+      "$and$graph.v:6$4\\n$and\\nedge cell",
+      "$not$graph.v:6$5\\n$not\\nedge cell",
+      "$or$graph.v:7$6\\n$or\\nedge cell",
+      "$xor$graph.v:7$7\\n$xor\\nedge cell",
+      "a\\nmodule input",
+      "b\\nmodule input",
+      "y\\nmodule output",
+      "z\\nmodule output"
+    ],
+    "edges": [
+      ["$add$graph.v:7$8\\n$add\\nedge cell", "z\\nmodule output", "label=\"Y -> z (8 bits)\""],
+      ["$and$graph.v:6$4\\n$and\\nedge cell", "$not$graph.v:6$5\\n$not\\nedge cell", "label=\"Y -> A (8 bits)\""],
+      ["$not$graph.v:6$5\\n$not\\nedge cell", "y\\nmodule output", "label=\"Y -> y (8 bits)\""],
+      ["$or$graph.v:7$6\\n$or\\nedge cell", "$add$graph.v:7$8\\n$add\\nedge cell", "label=\"Y -> A (8 bits)\""],
+      ["$xor$graph.v:7$7\\n$xor\\nedge cell", "$add$graph.v:7$8\\n$add\\nedge cell", "label=\"Y -> B (8 bits)\""],
+      ["a\\nmodule input", "$or$graph.v:7$6\\n$or\\nedge cell", "label=\"a -> A (8 bits)\""],
+      ["a\\nmodule input", "$xor$graph.v:7$7\\n$xor\\nedge cell", "label=\"a -> A (8 bits)\""],
+      ["b\\nmodule input", "$and$graph.v:6$4\\n$and\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["b\\nmodule input", "$or$graph.v:7$6\\n$or\\nedge cell", "label=\"b -> B (8 bits)\""],
+      ["b\\nmodule input", "$xor$graph.v:7$7\\n$xor\\nedge cell", "label=\"b -> B (8 bits)\""]
+    ]
+  },
+  "-nodes none -topk 1": {
+    "objects": [
+      "$add$graph.v:7$8\\n$add\\nedge cell",
+      "$and$graph.v:6$4\\n$and\\nedge cell",
+      "a\\nmodule input",
+      "b\\nmodule input",
+      "y\\nmodule output",
+      "z\\nmodule output"
+    ],
+    "edges": [
+      ["$add$graph.v:7$8\\n$add\\nedge cell", "z\\nmodule output", "label=\"Y -> z (8 bits)\""],
+      ["$and$graph.v:6$4\\n$and\\nedge cell", "y\\nmodule output", "style=dashed, color=\"#7f7f7f\", label=\"Y -> y (collapsed 1 cells)\""],
+      ["a\\nmodule input", "$add$graph.v:7$8\\n$add\\nedge cell", "style=dashed, color=\"#7f7f7f\", label=\"a -> A (collapsed 1 cells)\""],
+      ["a\\nmodule input", "$add$graph.v:7$8\\n$add\\nedge cell", "style=dashed, color=\"#7f7f7f\", label=\"a -> B (collapsed 1 cells)\""],
+      ["b\\nmodule input", "$add$graph.v:7$8\\n$add\\nedge cell", "style=dashed, color=\"#7f7f7f\", label=\"b -> A (collapsed 1 cells)\""],
+      ["b\\nmodule input", "$add$graph.v:7$8\\n$add\\nedge cell", "style=dashed, color=\"#7f7f7f\", label=\"b -> B (collapsed 1 cells)\""],
+      ["b\\nmodule input", "$and$graph.v:6$4\\n$and\\nedge cell", "label=\"b -> B (8 bits)\""]
+    ]
+  }
+}

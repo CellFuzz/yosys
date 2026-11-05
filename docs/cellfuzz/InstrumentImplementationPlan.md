@@ -1,6 +1,8 @@
 # CellFuzz：Yosys 侧插装实施计划
 
-状态：2026-11-04 根据已确认需求重排的工程草案。设计依据为 [InstrumentDesign.md](InstrumentDesign.md)。当前只有 cellfilter 的构图、node 配置、region 策略和选择/view 分离已实现；以下为后续工作，不代表命令已经可用。
+状态：2026-11-04 根据已确认需求重排的工程草案。设计依据为 [InstrumentDesign.md](InstrumentDesign.md)。当前已实现 cellfilter 的共享图服务、选择/view 和会话快照交接；第二至第五步的命令与能力仍待实现。
+
+阶段进展：1A 见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)，1B/1C 见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)。第一步的共享服务和结果交接已交付；第二至第五步仍待实现。
 
 ## 1. 交付目标与顺序
 
@@ -47,6 +49,8 @@ JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，�
 
 ### 1A. 抽取共享图与选择/view 服务
 
+实现说明：[阶段 1A：共享 CellGraph、选择与 view](Stage1ASharedGraph.md)。
+
 - 将现有 CellGraph、构图器、选择接口和 view 移出 PRIVATE_NAMESPACE，保存 raw/canonical signal 的区别。
 - 原样复用 node 角色、region 回调、top-k 和折叠算法。view 只消费明确集合，省略的 NODE 或 module port 不会被穿过或补回。
 - 增补 module/cell 原名、类型/参数、来源和筛选原因的值记录。共用邻接查询从保留连接建立。
@@ -55,6 +59,8 @@ JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，�
 
 ### 1B. AnalysisSnapshot 和 SnapshotStore
 
+实现说明：[阶段 1B/1C：会话快照、发布与恢复绑定](Stage1BCSessionSnapshots.md)。
+
 - 规定带版本的内部快照：有效配置、策略、模块标识/结构摘要、明确选中集合及恢复分析结果所需的记录。对象使用无歧义原名和 bit 引用，不序列化裸指针。
 - 用当前 Design 关联的存储发布最近一次成功结果批次。新调用使旧批次失效，所有目标模块成功后一起发布；失败后没有可误用的旧结果。
 - 把 `select_objects()` 移出当前 DOT 输出条件，未传 `-dot` 也发布结果。分析完成后仍不添加功能 wire、cell、port 或插装标记。
@@ -62,6 +68,8 @@ JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，�
 验收：开/关 DOT 发布相同集合；多模块结果可按模块查找；重新运行替换结果；失败后结果不可消费；内部编码正确往返特殊 RTLIL 名称。
 
 ### 1C. 恢复绑定与过期检查
+
+接口、结构摘要范围和 Design 操作边界见 [阶段 1B/1C](Stage1BCSessionSnapshots.md)。
 
 - 从当前模块解析对象和 wire，校验源位宽、类型、参数和连接；允许复用构图器恢复结构，保持保存的选择集合及解释。
 - 结构摘要规范化排序，并覆盖端口、wire/cell、连接、初始化和必要依赖；保留 SigSpec 位序、重复 bit 和 X/Z。排除 scratchpad、输出路径和临时选择栈。

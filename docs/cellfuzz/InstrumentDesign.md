@@ -1,6 +1,8 @@
 # CellFuzz：Yosys 侧观测插装设计
 
-状态：2026-11-04 需求讨论后的设计草案。当前 `cellfilter` 已实现 node 类型配置、region 选择策略以及选择/view 分离；会话内结果交接、`cellinstrument` 和静态描述导出尚未实现。本文中的新增接口均为拟议接口。
+状态：2026-11-04 需求讨论后的设计草案。当前 `cellfilter` 已实现 node 类型配置、region 选择策略、共享选择/view 及会话内分析结果交接；`cellinstrument` 和静态描述导出尚未实现，相关接口仍为拟议接口。
+
+阶段进展：共享服务见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)；会话快照、发布和恢复绑定见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)。这两项覆盖实施计划的第一步，不代表后续插装阶段完成。
 
 ## 1. 目标和本次边界
 
@@ -40,10 +42,8 @@ flowchart TD
 
 ```text
 read_verilog /root/workflow/ibex.v
-hierarchy -top ibex_branch_predict
-proc
-memory_collect
-flatten
+hierarchy -top ibex_decoder
+proc; memory_collect; flatten
 
 cellfilter -nodes all -topk 8 -dot interested.dot
 cellinstrument -manifest monitor.json
@@ -94,7 +94,7 @@ CellGraphView view = graph.create_view(selection);
 - 明确选中对象的名称/身份、module port 集合、region 与选择说明。
 - 恢复图结构和源绑定所需的无指针记录。
 
-会话存储跟随当前 `Design`，通过共享的 SnapshotStore 封装。例如可利用 `Design::scratchpad` 的字符串存储保存带版本的内部记录；编码需无歧义地处理 RTLIL 名称。快照不保存 `Cell*`、`Wire*`、`SigMap` 等跨命令裸指针。具体内部编码在第一步确定，不形成外部文件接口。
+会话存储跟随当前 `Design`，通过共享的 SnapshotStore 封装。当前使用 `Design::scratchpad["cellfuzz.analysis"]` 保存带版本的内部 JSON 记录，以原始名称和有序 bit 引用无歧义地编码 RTLIL 身份。快照不保存 `Cell*`、`Wire*`、`SigMap` 等跨命令裸指针。编码及恢复入口见 [阶段 1B/1C](Stage1BCSessionSnapshots.md)，不形成外部文件接口。
 
 插装时按标识重新绑定当前对象；如需恢复邻接结构，可复用共享构图器并采用保存的对象集合，不能重跑评分或改变选中对象。允许保存图的完整值记录，也允许保存可精确恢复原分析结果的记录；两者都必须通过同一快照往返验收。
 

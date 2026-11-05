@@ -137,9 +137,11 @@ cellfilter -nodes mem -topk 3 -dot memories.dot
 
 ## 9. 与独立插装 pass 的对接计划
 
-本节描述后续集成，当前 cellfilter 尚未实现结果持久到会话存储。
+当前 cellfilter 已实现同一 Design 的会话内结果保存；独立插装 pass 仍待后续交付。
+
+构图、选择和 view 已抽取到 `passes/cmds/cellfuzz/`，见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)；快照编码、发布和恢复验收见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)。
 
 - 同一会话先运行 cellfilter，再运行 cellinstrument。node 配置和选择参数只由 cellfilter 接收；插装消费其已发布集合，不重新评分。
-- cellfilter 应在没有 DOT 输出时同样计算并发布选择结果。会话结果需要版本和结构校验，按对象身份恢复绑定，不传递跨命令裸指针。
+- cellfilter 在没有 DOT 输出时同样计算并发布选择结果。会话结果使用版本和结构校验，按对象身份恢复绑定，不传递跨命令裸指针。
 - 静态描述导出完整 CellGraph 分析快照，并分别记录选中/观测状态。原图保留连接与折叠 view 分开输出；未观测对象仍有结构说明。
 - 本文 top-k/region/折叠算法保持原样。新增结果交接、观测点和可逆打包的契约见 [InstrumentDesign.md](InstrumentDesign.md)，实施顺序见 [InstrumentImplementationPlan.md](InstrumentImplementationPlan.md)。
