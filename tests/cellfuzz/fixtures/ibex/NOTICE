@@ -1,0 +1,9 @@
+Ibex RISC-V Core
+https://github.com/lowRISC/ibex
+Copyright lowRISC contributors and the Ibex project contributors.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The two fixture module bodies are extracted without behavioral changes from
+a project-supplied sv2v-converted Ibex Verilog bundle. The exact upstream
+revision was not retained in that bundle. Original bundle and extracted
+module hashes are recorded in source.json. README.md documents reproduction.

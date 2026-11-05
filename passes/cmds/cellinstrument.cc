@@ -59,8 +59,10 @@ struct CellInstrumentPass : Pass {
 				plan_only = true;
 				continue;
 			}
-			if (arg != "-manifest" && arg != "-mem-access" && arg != "-mem-content" && arg != "-chunk-width" && arg != "-prefix")
-				log_cmd_error("cellinstrument: unknown argument `%s'; selection belongs to cellfilter.\n", arg);
+			if (arg != "-manifest" && arg != "-mem-access" && arg != "-mem-content" && arg != "-chunk-width" && arg != "-prefix") {
+				help();
+				log_cmd_error("cellinstrument: unknown argument `%s'.\n", arg);
+			}
 			if (index + 1 == args.size() || args[index + 1].empty() || args[index + 1][0] == '-')
 				log_cmd_error("cellinstrument: option %s requires a value.\n", arg);
 			const auto &value = args[++index];

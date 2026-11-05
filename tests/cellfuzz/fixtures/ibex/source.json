@@ -1,0 +1,9 @@
+{
+  "origin": "project-supplied sv2v-converted Ibex bundle; upstream revision and converter version not recorded",
+  "upstream": "https://github.com/lowRISC/ibex",
+  "bundle_sha256": "1d72ca19d1a34bfa9770122208ba1f137a41923bef84273176e3c020de582c09",
+  "modules": {
+    "ibex_branch_predict": "066d38e5f865eab565a652410ffc2206f71686dc7169a33674d8b82df147c5a3",
+    "ibex_controller": "a35d828928caa0764a0d96bc53860080b61efd173971e85e1b3c8760c13b2f02"
+  }
+}

@@ -1,8 +1,8 @@
 # CellFuzz：Yosys 侧插装实施计划
 
-状态：2026-11-05 按已确认需求分阶段实施。设计依据为 [InstrumentDesign.md](InstrumentDesign.md)。当前已实现 cellfilter 的共享图服务、选择/view 和会话快照交接，以及 cellinstrument 的 2A 类型规划、2B 确定性静态契约和 3A 普通旁路物化；3B 的真实用例闭环和第四、第五步仍待交付。
+状态：2026-11-05 按已确认需求分阶段实施。设计依据为 [InstrumentDesign.md](InstrumentDesign.md)。当前已实现 cellfilter 的共享图服务、选择/view 和会话快照交接，以及 cellinstrument 的 2A 类型规划、2B 确定性静态契约、3A 普通旁路物化和 3B Ibex 实际值闭环及 register 补充验收；第四、第五步仍待交付。
 
-阶段进展：1A 见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)，1B/1C 见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)，2A 见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)，2B 见 [Stage2BManifest.md](Stage2BManifest.md)，3A 见 [Stage3AMaterialization.md](Stage3AMaterialization.md)。
+阶段进展：1A 见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)，1B/1C 见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)，2A 见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)，2B 见 [Stage2BManifest.md](Stage2BManifest.md)，3A 见 [Stage3AMaterialization.md](Stage3AMaterialization.md)，3B 见 [Stage3BValueRoundtrip.md](Stage3BValueRoundtrip.md)。
 
 ## 1. 交付目标与顺序
 
@@ -132,6 +132,8 @@ JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，�
 验收：1/8/32/33/64/65/256 bit、超过一块、非整块尾部、拼接/切片/重复 bit/常量和无观测项均可逆；图 ID、源绑定与实际端口一致；功能输出和原状态更新语义保持。
 
 完成标志：第一处可使用的 Yosys 插装闭环。`check -assert` 和 `write_verilog` 通过，可附加 Verilator lint/模型编译验证导出接口。
+
+3B 已交付：`tests/cellfuzz/value_roundtrip.sh` 使用仓库内固定哈希 Ibex 夹具，验证导出 Verilog 回读后的实际接口值与全部原功能输出。独立 Python 消费端按 manifest 解包，C++ 测试插件只从原 RTLIL 解析参考源；另有组合 SAT、controller 4 步有界 SAT、9 路 register/latch 的独立状态预期值和既有全结构保持断言。详情与证明边界见阶段文档。
 
 ## 6. 第四步：Memory 业务端口观测
 

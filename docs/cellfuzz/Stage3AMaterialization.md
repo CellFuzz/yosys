@@ -85,4 +85,4 @@ write_verilog instrumented.v
 
 故障注入临时移除新增输出的 port_input 检查；真实端口损坏场景不再被拒绝，测试在预期失败断言处报错。随后逐字节恢复生产源码并完整重建，materialize 回归再次通过。
 
-2026-11-05 完整 CMake 构建通过，无编译警告或错误；CellFuzz 全部 shared_graph/snapshot/type_plan/manifest/materialize 为 5 passed / 0 failed，恢复注入后的最终汇总仍为 5/0；既有 various/cellfilter.sh 为 PASS；git diff --check 与新增源码/文档空白检查通过。代码、注释和本文均保存在原工作区，已有 2A/2B 改动保留。3B 的 Ibex 真实用例闭环仍按后续任务交付。
+2026-11-05 完整 CMake 构建通过，无编译警告或错误；CellFuzz 全部 shared_graph/snapshot/type_plan/manifest/materialize 为 5 passed / 0 failed，恢复注入后的最终汇总仍为 5/0；既有 various/cellfilter.sh 为 PASS；git diff --check 与新增源码/文档空白检查通过。代码、注释和本文均保存在原工作区，已有 2A/2B 改动保留。后续 3B 的 Ibex 真实用例闭环已另行交付，见 [Stage3BValueRoundtrip.md](Stage3BValueRoundtrip.md)。

@@ -1,8 +1,8 @@
 # CellFuzz：Yosys 侧观测插装设计
 
-状态：2026-11-05 按已确认设计分阶段实施。当前 `cellfilter` 已实现 node 类型配置、region 选择策略、共享选择/view 及会话内分析结果交接；`cellinstrument` 已实现 2A 类型规划、2B 确定性静态契约和 3A 普通旁路物化。3B 的真实用例闭环及 memory 能力仍待后续阶段。
+状态：2026-11-05 按已确认设计分阶段实施。当前 `cellfilter` 已实现 node 类型配置、region 选择策略、共享选择/view 及会话内分析结果交接；`cellinstrument` 已实现 2A 类型规划、2B 确定性静态契约、3A 普通旁路物化和 3B Ibex 实际值闭环及 register 补充验收。memory 能力仍待后续阶段。
 
-阶段进展：共享服务见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)；会话快照、发布和恢复绑定见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)；类型规划见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)；静态 schema 见 [Stage2BManifest.md](Stage2BManifest.md)；物化与失败边界见 [Stage3AMaterialization.md](Stage3AMaterialization.md)。默认命令输出 `status: materialized`、`stage: observation-materialization`；`-plan-only` 输出 `status: planned`、`stage: observation-planning`。
+阶段进展：共享服务见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)；会话快照、发布和恢复绑定见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)；类型规划见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)；静态 schema 见 [Stage2BManifest.md](Stage2BManifest.md)；物化与失败边界见 [Stage3AMaterialization.md](Stage3AMaterialization.md)；实际值回归及夹具来源见 [Stage3BValueRoundtrip.md](Stage3BValueRoundtrip.md)。默认命令输出 `status: materialized`、`stage: observation-materialization`；`-plan-only` 输出 `status: planned`、`stage: observation-planning`。
 
 ## 1. 目标和本次边界
 
@@ -268,7 +268,7 @@ manifest 先写入同目录临时文件，确认写入、flush、close 成功后
 
 ## 9. 验证对象和后续工作
 
-首个真实对象使用 `/root/workflow/ibex.v` 的 `ibex_branch_predict`。按约定预处理后，该模块有 20 个组合 cell：1 个 `$add`、5 个 `$and`、8 个 `$eq`、5 个 `$or`、1 个 `$pmux`；没有 FF 或 memory。它用于验证输出与 S 观测、图与映射、可逆打包和原功能保持。
+3B 的真实回归使用仓库内 `tests/cellfuzz/fixtures/ibex` 中固定哈希的 `ibex_branch_predict` 和 `ibex_controller`，来源及可复现提取方式见该目录 README。按约定预处理后，分支预测器有 20 个组合 cell：1 个 `$add`、5 个 `$and`、8 个 `$eq`、5 个 `$or`、1 个 `$pmux`；没有 FF 或 memory。controller 补充 10 路真实 register Q 和控制路径。两者验证导出 Verilog 回读后的实际输出与 S/Q、图与映射、可逆打包和原功能保持。
 
 寄存器和 memory 用小型专用 RTL 用例补充，分别覆盖 Q/初值/时钟语义，以及业务端口、掩码、多端口、同步读保持、内容查询和非零 offset。测试夹具应可独立获取，仓库回归不以 `/root/workflow` 绝对路径作为必要依赖。
 
