@@ -30,7 +30,7 @@ flowchart TD
     O[观测与布局配置] --> D
     D --> E[新增顶层观测接口]
     D --> F[monitor.json：静态图与观测映射]
-    E --> G[write_verilog]
+    E --> G[opt_clean / check / write_verilog]
     G --> H[instrumented.v]
 ```
 
@@ -40,20 +40,35 @@ flowchart TD
 
 `cellinstrument` 必须使用先前成功发布的分析结果。它不接收 `-nodes`、`-topk`、`-edge-topk` 或 `-objects` 等选择参数。普通 edge 输出、mux 选择信号和 register Q 是固定的首版规则，不提供关闭这些必选项的开关。
 
-拟议流程如下；两个 pass 在同一个 Yosys 进程中执行：
+正式流程如下；两个 pass 在同一个 Yosys 进程中执行：
 
 ```text
 read_verilog /root/workflow/ibex.v
-hierarchy -top ibex_decoder
+hierarchy -top ibex_core
 proc; memory_collect; flatten
 
-cellfilter -nodes all -topk 8 -dot interested.dot
-cellinstrument -manifest monitor.json
+cellfilter -nodes all -topk 2 -dot interested.dot
+cellinstrument -manifest monitor.json -chunk-width 128
+write_rtlil instrumented.il
+opt_clean
 check -assert
 write_verilog instrumented.v
 ```
 
 选择算法复用现有实现，评分与折叠细节见 [RegionTopKDesign.md](RegionTopKDesign.md)。本次不重新实现 top-k。
+
+这是正式导出顺序：映射必须放在插装之后。`write_rtlil` 是可选诊断/重试检查点；不得在 `cellfilter` 和 `cellinstrument` 之间改写结构。组合类型按已验证的 backend/model 路径显式列入允许表，未知类型在全模块预检拒绝。映射后内部 cell 的替换不改变 manifest 冻结的源身份；下游通过新增顶层接口、方向、宽度和位段消费观测值。
+
+`materialized` 只表示 RTLIL 插装及 manifest 发布成功。映射、导出、回读或 lint 失败时，该目录不能交付；在新输出目录完成全部检查后再向下游提供，不增加跨文件原子发布协议。最终 Verilog 必须在新进程回读并 lint，例如 `$fa` 的可复制输入见 `tests/cellfuzz/fixtures/fa.il`：
+
+```sh
+mkdir -p /tmp/cellfuzz-fa-export
+build/yosys -p 'read_rtlil tests/cellfuzz/fixtures/fa.il; cellfilter; cellinstrument -manifest /tmp/cellfuzz-fa-export/monitor.json; write_rtlil /tmp/cellfuzz-fa-export/instrumented.il; opt_clean; check -assert; write_verilog /tmp/cellfuzz-fa-export/instrumented.v'
+build/yosys -p 'read_verilog /tmp/cellfuzz-fa-export/instrumented.v; hierarchy -check -top top; proc; check -assert'
+verilator --lint-only --top-module top -Wno-fatal /tmp/cellfuzz-fa-export/instrumented.v
+```
+
+验收还要从最终网表检查原业务端口和 manifest 的全部新增接口及数值，而非只检查映射前 RTLIL。`tests/cellfuzz/export_matrix.py` 记录逐类型参数样例和二态数学 oracle；除零未定义域、X/Z、三态关闭/多驱动不由二态值检查证明。simcells 的已有 tristate 警告须分类审阅。
 
 插装 pass 的拟议参数限于以下内容：
 

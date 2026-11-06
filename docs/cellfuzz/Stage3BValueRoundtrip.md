@@ -2,6 +2,8 @@
 
 本阶段按 [实施计划 §3B](InstrumentImplementationPlan.md#3b-ibex-组合逻辑闭环和-register-补充) 验收已交付的普通插装。现有设计已确认观测规则、布局、源绑定与物化，本页记录测试分解和可复现契约，不改变 CLI/schema、选择规则或 memory 能力。
 
+2026-11-06 审查修复：值回归统一使用插装后的两步映射，最终 Verilog 经新进程回读、接口核对和 lint，再进行实际值比较。新增 75 类组合类型、185 个参数样例的导出矩阵与二态数学 oracle；全部输出及 mux selector 的期望集合独立于 manifest 构造。除零未定义位与 shiftx 的越界 X 允许映射精化，X/Z 和三态关闭不纳入二态证明；原始 sim 对混合符号 `$pow` 的求值会清除符号，矩阵先行为导出 gold，再独立按数学公式核对。原阶段记录仍为历史证据，新增结果见 [修复验收记录](ReviewFixResults.md)。
+
 ## 目标与范围
 
 实施条目指定 ibex_controller，主设计的纯组合基准为 ibex_branch_predict，因此同时保存并验证两者：分支预测器覆盖组合输出、pmux S 和原功能；controller 补充真实寄存器与控制路径。夹具从已有的 sv2v 转换文件逐模块原样提取，固定内容哈希并随仓库提供，日常回归无需网络或 /root/workflow。来源文件未记录准确 upstream commit，不将夹具误称为某个 upstream tag/commit。
@@ -43,7 +45,7 @@ git diff --check
 
 实际值路径对 gate 执行 `write_verilog`、回读、`proc`、`check -assert`，然后让共享刺激同时驱动 gold 和 gate。公开 bench wire 保存原始参考 item、实际新增 block 和双方全部原功能输出。Yosys `sim` 的 VCD 在每个 timestamp 的所有变化处理完后形成样本。Python 消费端 `value_consumer.py` 仅接收 manifest 和实际 block 值；它不读取 source、不生成打包值，也不复用 C++ 参考插件的解包结果。消费端按 bit0 偏移取位，支持无序 segment、四态值、跨块项和共享块，同时检查范围、覆盖、重叠、ID、端口和总宽度。空计划消费空字典，仍检查原功能输出。
 
-内建类型夹具复用已有 `type_plan.cc`，包含 `$alu` 的 X/Y/CO、`$fa` 的 X/Y、`$lcu` 的 CO、10 类 mux 的 16 项选择信号，以及别名、切片、重复位和 X/Z 常量。Yosys `sim` 不直接支持其中部分内部 cell；先引出原源位，再对双方使用官方 `techmap` / `simcells.v` 模型求值。转换前已完成原 cell/端口身份和全结构保持检查，四态选择值也从实际导出端口验证。
+内建类型夹具复用已有 `type_plan.cc`，包含 `$alu` 的 X/Y/CO、`$fa` 的 X/Y、`$lcu` 的 CO、10 类 mux 的 16 项选择信号，以及别名、切片、重复位和 X/Z 常量。转换前已完成原 cell/端口身份和全结构保持检查，四态选择值也从实际导出端口验证。
 
 ## 覆盖与证明边界
 

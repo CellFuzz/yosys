@@ -1,0 +1,235 @@
+{
+  "baseline": "e8b9e9c0ba085b3851005b94b469c6be2b4f3b10",
+  "repair_commits": [],
+  "delivery": "uncommitted working tree",
+  "date": "2026-11-06",
+  "production_sha256": {
+    "passes/cmds/cellfilter.cc": "16fa60a63fc284071ecb7e0d5b19276ae771dc479e4668cb65cde80a297364b0",
+    "passes/cmds/cellinstrument.cc": "873f9827e3ec3576539ca815a83c0baf53d19fb9b750274d0fc5320bac5bee1f",
+    "passes/cmds/cellfuzz/transport.cc": "db6dc0f29d1730797457b4e602e4a8bbf3330dd235fe9215b0541e23dc7ee943",
+    "passes/cmds/cellfuzz/monitor_plan.cc": "3d6e88de12d35c846fc924bfbc64967e4a350fae395cc513d693ad4ae334a6af",
+    "passes/cmds/cellfuzz/structural_digest.cc": "7d31dee2f4aa85a91d4cd2793671aaecae682f066e07c93063f093875fce9158",
+    "passes/cmds/cellfuzz/analysis_snapshot.h": "f58bf9c817c6a3a7fec40f9f7ed7a6a056011df7d120aac5a20c179bb8c99608",
+    "passes/cmds/cellfuzz/analysis_snapshot.cc": "87d8820ffe40cd33a0e64a480699d2240514ae1a030244a743f5e7178365a728"
+  },
+  "regression": [
+    {
+      "test": "shared_graph",
+      "exit_code": 0,
+      "seconds": 2.819
+    },
+    {
+      "test": "snapshot",
+      "exit_code": 0,
+      "seconds": 4.473
+    },
+    {
+      "test": "type_plan",
+      "exit_code": 0,
+      "seconds": 6.376
+    },
+    {
+      "test": "manifest",
+      "exit_code": 0,
+      "seconds": 7.93
+    },
+    {
+      "test": "materialize",
+      "exit_code": 0,
+      "seconds": 20.454
+    },
+    {
+      "test": "value_roundtrip",
+      "exit_code": 0,
+      "seconds": 116.379
+    },
+    {
+      "test": "memory_access",
+      "exit_code": 0,
+      "seconds": 71.099
+    },
+    {
+      "test": "memory_query",
+      "exit_code": 0,
+      "seconds": 105.622
+    },
+    {
+      "test": "various/cellfilter",
+      "exit_code": 0
+    }
+  ],
+  "storage_mutations": [
+    {
+      "variant": "old-latch",
+      "detected_by": "('latch identity', ('$sr', 0, 'plan'), {'arst_value': {'bits': '', 'flags': 0, 'width': 0}, 'async_data': [], 'ce_over_srst': False, 'cell': '\\\\state', 'cell_id': 0, 'controls': {'clear': {'positive': True, 'source': [['\\\\clr', 0], ['\\\\clr', 1], ['\\\\clr', 2]]}, 'set': {'positive': False, 'source': [['\\\\set', 0], ['\\\\set', 1], ['\\\\set', 2]]}}, 'fine': False, 'has_aload': False, 'has_arst': False, 'has_ce': False, 'has_clk': False, 'has_sr': True, 'has_srst': False, 'init': {'bits': '101', 'flags': 0, 'width': 3}, 'latch': False, 'srst_value': {'bits': '', 'flags': 0, 'width': 0}})",
+      "exit_code": 1
+    },
+    {
+      "variant": "invert-has-sr",
+      "detected_by": "('storage flag', 'has_sr', ('$sr', 0, 'plan'))",
+      "exit_code": 1
+    },
+    {
+      "variant": "invert-set-polarity",
+      "detected_by": "('control polarity/source', 'set', ('$sr', 0, 'plan'))",
+      "exit_code": 1
+    }
+  ],
+  "dependency_mutation": {
+    "variant": "ignore-child-hash",
+    "exit_code": 1,
+    "assertion": "before != structural_digest(root)"
+  },
+  "performance_before": {
+    "100": {
+      "seconds": [
+        1.161318494938314,
+        1.174644235521555,
+        1.162674691528082,
+        1.1505637438967824,
+        1.1580680217593908
+      ],
+      "median_seconds": 1.161318494938314,
+      "peak_rss_kib": [
+        71436,
+        69552,
+        69696,
+        72796,
+        68856
+      ]
+    },
+    "200": {
+      "seconds": [
+        4.516104378737509,
+        4.586391597986221,
+        4.602254653349519,
+        4.581543342210352,
+        4.547542694024742
+      ],
+      "median_seconds": 4.581543342210352,
+      "peak_rss_kib": [
+        75780,
+        70756,
+        75432,
+        73500,
+        75156
+      ]
+    },
+    "400": {
+      "seconds": [
+        18.05816355533898,
+        18.039999497123063,
+        17.989300467073917,
+        17.93608397617936,
+        18.068138950504363
+      ],
+      "median_seconds": 18.039999497123063,
+      "peak_rss_kib": [
+        77804,
+        79576,
+        78000,
+        80016,
+        78776
+      ]
+    }
+  },
+  "performance_after": {
+    "yosys": "/root/yosys/build/yosys",
+    "command": "read_verilog chain.v; hierarchy -top m0; cellfilter",
+    "chains": {
+      "100": {
+        "seconds": [
+          0.08953365124762058,
+          0.08888980001211166,
+          0.08893942460417747,
+          0.08951286878436804,
+          0.08709081634879112
+        ],
+        "median_seconds": 0.08893942460417747,
+        "peak_rss_kib": [
+          70488,
+          71712,
+          71236,
+          69648,
+          69684
+        ]
+      },
+      "200": {
+        "seconds": [
+          0.1585412947461009,
+          0.15607371367514133,
+          0.15954288560897112,
+          0.15749769192188978,
+          0.1542724771425128
+        ],
+        "median_seconds": 0.15749769192188978,
+        "peak_rss_kib": [
+          71748,
+          73192,
+          73004,
+          72256,
+          72376
+        ]
+      },
+      "400": {
+        "seconds": [
+          0.2905246168375015,
+          0.29040126968175173,
+          0.28981153201311827,
+          0.29025708325207233,
+          0.28996296878904104
+        ],
+        "median_seconds": 0.29025708325207233,
+        "peak_rss_kib": [
+          76456,
+          74140,
+          68164,
+          75660,
+          75684
+        ]
+      },
+      "800": {
+        "seconds": [
+          0.5653722304850817,
+          0.5651633944362402,
+          0.5560043323785067,
+          0.5563595779240131,
+          0.5588062582537532
+        ],
+        "median_seconds": 0.5588062582537532,
+        "peak_rss_kib": [
+          81784,
+          81688,
+          81608,
+          82452,
+          83468
+        ]
+      }
+    }
+  },
+  "raw_mutations": [
+    {
+      "variant": "query-control",
+      "required_diagnostic": "raw query connection mismatch: RD_EN",
+      "expected_exit_code": 1,
+      "actual_exit_code": 1
+    },
+    {
+      "variant": "init",
+      "required_diagnostic": "raw query parameter mismatch: INIT",
+      "expected_exit_code": 1,
+      "actual_exit_code": 1
+    },
+    {
+      "variant": "business-mask",
+      "required_diagnostic": "raw query parameter mismatch: RD_COLLISION_X_MASK",
+      "expected_exit_code": 1,
+      "actual_exit_code": 1
+    }
+  ],
+  "final_review": {
+    "remaining_critical": 0,
+    "remaining_required": 0,
+    "checked": "production/test changes, source hashes, evidence consistency and relative documentation targets"
+  }
+}

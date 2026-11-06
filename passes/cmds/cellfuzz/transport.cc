@@ -16,16 +16,11 @@ static void require(bool condition, const char *reason)
 		log_cmd_error("cellinstrument: invalid transport: %s.\n", reason);
 }
 
-static void check_name(const std::string &name, RTLIL::Module *module, bool check_existing = true)
+static void check_name_syntax(const std::string &name)
 {
 	require(!name.empty() && !VERILOG_BACKEND::id_is_verilog_escaped(name), "illegal or reserved interface name");
 	require(name.compare(0, 2, "__") != 0,
 			"Verilator reserved interface prefix");
-	// Module parameters and other RTLIL objects share the Verilog scope
-	// with the new port. Check all original names before planning any output.
-	auto id = RTLIL::escape_id(name);
-	require(!check_existing || (!module->count_id(id) && !module->parameter_default_values.count(id) && !module->avail_parameters.count(id)),
-			"interface name collides with an existing object");
 }
 
 using Interval = std::pair<int, int>;
@@ -45,7 +40,7 @@ static void cover(std::vector<Interval> intervals, int width)
 TransportLayout create_transport(const MonitorPlan &plan, RTLIL::Module *module)
 {
 	plan.options.validate();
-	check_name(plan.options.prefix, module, false);
+	check_name_syntax(plan.options.prefix);
 	TransportLayout layout;
 	for (int monitor = 0; monitor < GetSize(plan.items); monitor++) {
 		int width = GetSize(plan.items[monitor].source);
@@ -54,7 +49,7 @@ TransportLayout create_transport(const MonitorPlan &plan, RTLIL::Module *module)
 			if (layout.ports.empty() || layout.ports.back().width == plan.options.chunk_width) {
 				require(layout.ports.size() < INT_MAX, "too many interface ports");
 				auto name = stringf("%s_obs_%04d", plan.options.prefix, GetSize(layout.ports));
-				check_name(name, module);
+				check_name_syntax(name);
 				layout.ports.push_back({name, 0});
 			}
 			auto &port = layout.ports.back();
@@ -72,7 +67,31 @@ TransportLayout create_transport(const MonitorPlan &plan, RTLIL::Module *module)
 void validate_transport(const MonitorPlan &plan, const TransportLayout &layout, RTLIL::Module *module)
 {
 	plan.options.validate();
-	check_name(plan.options.prefix, module, false);
+	check_name_syntax(plan.options.prefix);
+	// Collect once per validation, including memories excluded from selection
+	// or observation. A collected cell's name can differ from its Verilog MEMID.
+	std::map<RTLIL::IdString, std::string> occupied;
+	for (auto wire : module->wires()) occupied.emplace(wire->name, "wire");
+	for (auto cell : module->cells()) occupied.emplace(cell->name, "cell");
+	for (const auto &entry : module->memories) occupied.emplace(entry.first, "memory");
+	for (const auto &entry : module->processes) occupied.emplace(entry.first, "process");
+	for (const auto &entry : module->parameter_default_values) occupied.emplace(entry.first, "parameter");
+	for (auto name : module->avail_parameters) occupied.emplace(name, "available parameter");
+	for (const auto &info : plan.memories)
+		occupied[info.memory.memid] = stringf("collected memory cell %s, MEMID %s",
+				log_id(info.memory.cell), log_id(info.memory.memid));
+	std::set<std::string> all_names;
+	auto check_name = [&](const std::string &name) {
+		check_name_syntax(name);
+		auto id = RTLIL::escape_id(name);
+		auto found = occupied.find(id);
+		if (found != occupied.end())
+			log_cmd_error("cellinstrument: interface name %s collides with an existing object (%s).\n",
+					name.c_str(), found->second.c_str());
+		// Retain count_id's complete RTLIL namespace check as the owner evolves.
+		require(!module->count_id(id), "interface name collides with an existing object");
+		require(all_names.insert(name).second, "duplicate query/transport interface name");
+	};
 	std::map<std::string, int> widths;
 	std::map<std::string, std::vector<Interval>> port_intervals;
 	std::vector<std::vector<Interval>> item_intervals(plan.items.size());
@@ -82,19 +101,16 @@ void validate_transport(const MonitorPlan &plan, const TransportLayout &layout, 
 		item_total += GetSize(item.source);
 	}
 	for (const auto &port : layout.ports) {
-		check_name(port.name, module);
+		check_name(port.name);
 		require(port.width > 0 && port.width <= plan.options.chunk_width, "interface width out of range");
 		require(port.width < RTLIL::WIDTH_LIMIT, "interface width exceeds RTLIL limit");
 		require(widths.emplace(port.name, port.width).second, "duplicate interface name");
 		port_total += port.width;
 	}
-	std::set<std::string> all_names;
-	for (const auto &port : layout.ports) all_names.insert(port.name);
 	for (const auto &info : plan.memories) {
 		if (!info.query.enabled) continue;
 		for (const auto &name : {info.query.addr_name, info.query.data_name}) {
-			check_name(name, module);
-			require(all_names.insert(name).second, "duplicate query/transport interface name");
+			check_name(name);
 		}
 		require(info.query.addr_width > 0 && info.query.addr_width <= 31 && info.memory.width > 0 &&
 				info.memory.width < RTLIL::WIDTH_LIMIT, "query interface width out of range");

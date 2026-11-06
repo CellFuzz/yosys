@@ -2,13 +2,15 @@
 
 状态：2026-11-05 按已确认需求分阶段实施。设计依据为 [InstrumentDesign.md](InstrumentDesign.md)。当前已实现 cellfilter 的共享图服务、选择/view 和会话快照交接，以及 cellinstrument 的 2A 类型规划、2B 确定性静态契约、3A 普通旁路物化、3B Ibex 实际值闭环及 register 补充验收、第四步 Memory 业务端口观测和第五步内容查询。Yosys 侧首版已实现。
 
+审查后续（2026-11-06）：对 `f51fc1ed8` 至 `e8b9e9c0b` 的审查发现名称预检、导出契约、SR latch 元数据和多模块摘要性能四项问题。修复方案、实施细节和独立验收见 [ReviewFixGuide.md](ReviewFixGuide.md)；四项代码修复与运行验收已完成，修改尚未提交；独立证据和边界见 [ReviewFixResults.md](ReviewFixResults.md)。本页原阶段完成记录继续保留为历史事实。
+
 阶段进展：1A 见 [Stage1ASharedGraph.md](Stage1ASharedGraph.md)，1B/1C 见 [Stage1BCSessionSnapshots.md](Stage1BCSessionSnapshots.md)，2A 见 [Stage2ATypePlanning.md](Stage2ATypePlanning.md)，2B 见 [Stage2BManifest.md](Stage2BManifest.md)，3A 见 [Stage3AMaterialization.md](Stage3AMaterialization.md)，3B 见 [Stage3BValueRoundtrip.md](Stage3BValueRoundtrip.md)。
 
 第四步实现、schema 增补及验证边界见 [Stage4MemoryAccess.md](Stage4MemoryAccess.md)；第五步查询接口、归一化检查及验收见 [Stage5MemoryQuery.md](Stage5MemoryQuery.md)。
 
 ## 1. 交付目标与顺序
 
-同一 Yosys 会话执行 `cellfilter` 和独立的 `cellinstrument`。前者负责选择并保存结果，后者消费结果、增加顶层接口，输出完整静态图和可逆观测映射，再由 `write_verilog` 导出。
+同一 Yosys 会话执行 `cellfilter` 和独立的 `cellinstrument`。前者负责选择并保存结果，后者消费结果、增加顶层接口，输出完整静态图和可逆观测映射。随后执行 `opt_clean; check -assert; write_verilog instrumented.v`，在新进程回读和 lint；完整命令见 [主设计](InstrumentDesign.md)。可选 `write_rtlil` 检查点放在插装后、映射前。
 
 | 步骤 | 可独立审查的交付 | 依赖 |
 | --- | --- | --- |
@@ -133,7 +135,7 @@ JSON 序列化可复用现有工具；检查最终写入/flush/close 错误，�
 
 验收：1/8/32/33/64/65/256 bit、超过一块、非整块尾部、拼接/切片/重复 bit/常量和无观测项均可逆；图 ID、源绑定与实际端口一致；功能输出和原状态更新语义保持。
 
-完成标志：第一处可使用的 Yosys 插装闭环。`check -assert` 和 `write_verilog` 通过，可附加 Verilator lint/模型编译验证导出接口。
+原阶段完成标志：第一处可使用的 Yosys 插装闭环。审查修正后的正式交付还要求插装后两步映射、清理、最终回读及 Verilator lint，命令与 materialized 边界见 [主设计](InstrumentDesign.md)。
 
 3B 已交付：`tests/cellfuzz/value_roundtrip.sh` 使用仓库内固定哈希 Ibex 夹具，验证导出 Verilog 回读后的实际接口值与全部原功能输出。独立 Python 消费端按 manifest 解包，C++ 测试插件只从原 RTLIL 解析参考源；另有组合 SAT、controller 4 步有界 SAT、9 路 register/latch 的独立状态预期值和既有全结构保持断言。详情与证明边界见阶段文档。
 

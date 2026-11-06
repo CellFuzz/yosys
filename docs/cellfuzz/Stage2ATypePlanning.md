@@ -6,6 +6,8 @@
 
 ## 边界与接口
 
+2026-11-06 修正：原先仅凭 evaluable 分类接受组合类型不足以建立导出契约。当前使用显式 direct/mapped 允许表；正式流程必须在插装后执行两步映射、清理和检查，再独立回读/lint。见 [主设计的正式命令](InstrumentDesign.md) 与 [修复手册 §4](ReviewFixGuide.md#4-f2统一支持范围与导出流程)。下列 2A 记录不代表直接 write_verilog 已覆盖所有类型。
+
 - 新入口 `cellinstrument -plan-only -manifest <file>`。正式物化尚未交付，省略 `-plan-only` 明确失败。
 - 接收设计约定的 `-mem-access on|off`（默认 on）、`-mem-content off|query`（默认 off）、`-chunk-width <正整数>`（默认 256）、`-prefix <ASCII标识符>`（默认 cf）；不接收选择参数或命令尾部 selection。
 - 当前产物明确标为 `stage: type-planning`、`status: planned`，只描述配置、分析身份、观测源和寄存器静态语义。它是 2A 的可审查类型计划；2B 将扩充完整图、确定性 transport 布局及正式 manifest 契约。本阶段不声称提供可逆位段或新增接口。

@@ -33,7 +33,7 @@ const CellGraphView &view = analysis.view;
 
 ## 内部值记录与身份
 
-当前 `Design::scratchpad["cellfuzz.analysis"]` 存放版本 1 的 JSON 批次：外层为 `version` 和 `modules`。每个模块记录包含：
+当前 `Design::scratchpad["cellfuzz.analysis"]` 存放版本 2 的 JSON 批次：外层为 `version` 和 `modules`。每个模块记录包含：
 
 | 字段 | 内容 |
 | --- | --- |
@@ -149,3 +149,9 @@ YOSYS="$PWD/build/yosys" YOSYS_CONFIG="$PWD/build/yosys-config" bash tests/cellf
 - `git diff --check` 通过。
 
 这些记录验收分阶段提交表第 2 项（实施计划 1B/1C）。后续观测规划、manifest、RTLIL 插装和 Verilator 侧工作仍按原计划交付。
+
+## 2026-11-06 摘要引擎修正
+
+版本 2 使用命令期 `StructuralDigestContext`，每个可达模块只生成一次局部记录，再按 SCC 的有序成员及外部依赖合成摘要。cellfilter 的所有目标共享同一上下文；恢复时重新针对当前 Design 计算，不复用分析时缓存。版本 1 批次明确拒绝并提示重跑 cellfilter；SelectionStrategy 版本与 manifest schema 不变，不透明 structure_digest/analysis_id 值发生变化。
+
+`snapshot.cc` 固定链、菱形、共享实例、自环、双模块循环、循环叶子、孤立节点、创建顺序、clone/save/load、child 参数/连接/init/process 优先顺序和无关修改的行为。4096 个根的局部序列化计数精确等于 4096，深链使用显式栈。墙钟及 RSS 是补充证据，命令和样本见 [修复验收记录](ReviewFixResults.md)；以上不改变原批次完整发布与 cellfilter 只读 RTLIL 的边界。

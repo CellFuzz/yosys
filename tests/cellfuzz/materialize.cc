@@ -56,31 +56,72 @@ static RTLIL::SigSpec remap(RTLIL::SigSpec value, RTLIL::Module *module)
 static void check_query_delta(RTLIL::Module *original, RTLIL::Module *module, const Json &memory)
 {
 	auto name = RTLIL::IdString(memory["name"].string_value());
-	RTLIL::Design normalized;
-	auto copy = original->clone(); normalized.add(copy);
-	for (auto helper : Mem::get_all_memories(copy)) if (helper.cell->name == name) helper.emit();
-	auto before = copy->cell(name), after = module->cell(name);
+	// Raw packed input is the oracle. In particular do not emit a gold Mem:
+	// using the same normalizer as production would conceal shared mistakes.
+	auto before = original->cell(name), after = module->cell(name);
 	log_assert(before && after && after->type == ID($mem_v2) && before->attributes == after->attributes);
 	int reads = before->getParam(ID::RD_PORTS).as_int(), writes = before->getParam(ID::WR_PORTS).as_int();
 	int width = before->getParam(ID::WIDTH).as_int(), old_abits = before->getParam(ID::ABITS).as_int();
 	const auto &query = memory["query"];
-	int abits = std::max(old_abits, query["address_width"].int_value());
+	int64_t offset = before->getParam(ID::OFFSET).as_int(), size = before->getParam(ID::SIZE).as_int();
+	log_assert(offset >= 0 && size > 0);
+	int address_width = 1;
+	while ((offset + size - 1) >> address_width) address_width++;
+	log_assert(query["address_width"].int_value() == address_width && query["data_width"].int_value() == width);
+	log_assert(module->wire(RTLIL::escape_id(query["address_port"].string_value()))->width == address_width);
+	log_assert(module->wire(RTLIL::escape_id(query["data_port"].string_value()))->width == width);
+	int abits = std::max(old_abits, address_width);
 	auto params = before->parameters;
-	params[ID::INIT] = original->cell(name)->getParam(ID::INIT);
+	if (before->type == ID($mem)) {
+		// Legacy migration per the documented $mem contract: no wide lanes or
+		// resets/init on the read FFs; transparency only for matching clocked
+		// domains, and later writes have priority within the same domain.
+		params.erase(ID::RD_TRANSPARENT);
+		for (auto id : {ID::RD_WIDE_CONTINUATION, ID::RD_CE_OVER_SRST}) params[id] = RTLIL::Const(0, std::max(reads, 1));
+		for (auto id : {ID::RD_INIT_VALUE, ID::RD_ARST_VALUE, ID::RD_SRST_VALUE})
+			params[id] = reads ? RTLIL::Const(RTLIL::State::Sx, reads * width) : RTLIL::Const(0, 1);
+		params[ID::WR_WIDE_CONTINUATION] = RTLIL::Const(0, std::max(writes, 1));
+		params[ID::RD_COLLISION_X_MASK] = RTLIL::Const(0, std::max(reads * writes, 1));
+		RTLIL::Const transparency(0, std::max(reads * writes, 1)), priority(0, std::max(writes * writes, 1));
+		auto same_domain = [&](bool read, int a, int b) {
+			auto enabled = before->getParam(read ? ID::RD_CLK_ENABLE : ID::WR_CLK_ENABLE)[a];
+			auto other_enabled = before->getParam(ID::WR_CLK_ENABLE)[b];
+			if (enabled != other_enabled) return false;
+			return enabled != RTLIL::State::S1 ||
+					(before->getParam(read ? ID::RD_CLK_POLARITY : ID::WR_CLK_POLARITY)[a] == before->getParam(ID::WR_CLK_POLARITY)[b] &&
+					before->getPort(read ? ID::RD_CLK : ID::WR_CLK)[a] == before->getPort(ID::WR_CLK)[b]);
+		};
+		for (int r = 0; r < reads; r++) for (int w = 0; w < writes; w++)
+			if (before->getParam(ID::RD_TRANSPARENT)[r] == RTLIL::State::S1 &&
+					before->getParam(ID::RD_CLK_ENABLE)[r] == RTLIL::State::S1 && same_domain(true, r, w))
+				transparency.set(r * writes + w, RTLIL::State::S1);
+		for (int a = 0; a < writes; a++) for (int b = 0; b < a; b++)
+			if (same_domain(false, a, b)) priority.set(a * writes + b, RTLIL::State::S1);
+		params[ID::RD_TRANSPARENCY_MASK] = transparency;
+		params[ID::WR_PRIORITY_MASK] = priority;
+	}
 	params[ID::ABITS] = RTLIL::Const(abits);
 	params[ID::RD_PORTS] = RTLIL::Const(reads + 1);
 	for (auto id : {ID::RD_CLK_ENABLE, ID::RD_CLK_POLARITY, ID::RD_CE_OVER_SRST, ID::RD_WIDE_CONTINUATION,
 			ID::RD_TRANSPARENCY_MASK, ID::RD_COLLISION_X_MASK, ID::RD_INIT_VALUE, ID::RD_ARST_VALUE, ID::RD_SRST_VALUE}) {
 		int unit = id.in(ID::RD_TRANSPARENCY_MASK, ID::RD_COLLISION_X_MASK) ? writes :
 				id.in(ID::RD_INIT_VALUE, ID::RD_ARST_VALUE, ID::RD_SRST_VALUE) ? width : 1;
-		auto value = before->getParam(id).extract(0, reads * unit);
+		auto value = params.at(id).extract(0, reads * unit);
 		value.append(RTLIL::Const(unit == width && id.in(ID::RD_INIT_VALUE, ID::RD_ARST_VALUE, ID::RD_SRST_VALUE) ?
 				RTLIL::State::Sx : id == ID::RD_CLK_POLARITY ? RTLIL::State::S1 : RTLIL::State::S0, unit));
 		if (value.empty()) value = RTLIL::State::S0; // zero writers mask sentinel
 		params[id] = value;
 	}
+	for (const auto &entry : params) {
+		if (entry.second != after->getParam(entry.first))
+			log_error("raw query parameter mismatch: %s\n", log_id(entry.first));
+	}
 	log_assert(params == after->parameters);
 	auto connections = before->connections();
+	if (before->type == ID($mem)) {
+		connections[ID::RD_ARST] = RTLIL::SigSpec(RTLIL::State::S0, reads);
+		connections[ID::RD_SRST] = RTLIL::SigSpec(RTLIL::State::S0, reads);
+	}
 	for (auto id : {ID::RD_ADDR, ID::WR_ADDR}) {
 		RTLIL::SigSpec value;
 		int count = id == ID::RD_ADDR ? reads : writes;
@@ -100,6 +141,10 @@ static void check_query_delta(RTLIL::Module *original, RTLIL::Module *module, co
 	connections[ID::RD_EN].append(RTLIL::State::S1);
 	connections[ID::RD_ARST].append(RTLIL::State::S0);
 	connections[ID::RD_SRST].append(RTLIL::State::S0);
+	for (const auto &entry : connections) {
+		if (entry.second != after->getPort(entry.first))
+			log_error("raw query connection mismatch: %s\n", log_id(entry.first));
+	}
 	log_assert(connections == after->connections());
 }
 
@@ -138,6 +183,29 @@ struct TestCellFuzzMaterialize : Pass {
 	TestCellFuzzMaterialize() : Pass("test_cellfuzz_materialize", "verify actual observation interfaces and failures") {}
 	void execute(std::vector<std::string> args, RTLIL::Design *design) override
 	{
+		if (GetSize(args) == 4 && args[1] == "raw-fault") {
+			auto module = design->top_module();
+			RTLIL::Design gold;
+			auto original = module->clone(); gold.add(original);
+			Pass::call(design, {"cellinstrument", "-manifest", args[3], "-mem-content", "query"});
+			auto report = read_report(args[3]);
+			const auto &memory = report["memories"][0];
+			auto cell = module->cell(RTLIL::IdString(memory["name"].string_value()));
+			if (args[2] == "query-control") {
+				auto value = cell->getPort(ID::RD_EN);
+				value[GetSize(value)-1] = RTLIL::State::S0;
+				cell->setPort(ID::RD_EN, value);
+			} else {
+				auto param = args[2] == "init" ? ID::INIT : ID::RD_COLLISION_X_MASK;
+				log_assert(args[2] == "init" || args[2] == "business-mask");
+				auto value = cell->getParam(param);
+				int bit = args[2] == "init" ? 0 : cell->getParam(ID::WR_PORTS).as_int();
+				value.set(bit, value[bit] == RTLIL::State::S1 ? RTLIL::State::S0 : RTLIL::State::S1);
+				cell->setParam(param, value);
+			}
+			check_query_delta(original, module, memory);
+			log_error("raw fault survived\n");
+		}
 		if (GetSize(args) == 2 && args[1] == "invalid") {
 			auto analysis = SnapshotStore::restore(design, design->top_module()->name);
 			auto plan = create_monitor_plan(analysis, MonitorOptions{});

@@ -25,12 +25,31 @@ static std::vector<RTLIL::IdString> mux_select_ports(RTLIL::IdString type)
 	return {};
 }
 
-static bool supported_comb(RTLIL::IdString type)
+enum class CombExport { UNSUPPORTED, DIRECT, MAPPED };
+
+static CombExport comb_export(RTLIL::IdString type)
 {
-	// Evaluable is the official pure combinational subset, unlike EDGE (a
-	// graph role) or cell_known (which also admits formal/stateful cells).
-	return StaticCellTypes::categories.is_evaluable(type) ||
-			type.in(ID($barrier), ID($tribuf), ID($_TBUF_));
+	// Deliberate allowlist: evaluability alone does not establish export support.
+	// DIRECT is owned by verilog_backend.cc (including its bmux/demux lowering).
+	// MAPPED requires techmap.v, then simcells.v, AFTER instrumentation. The
+	// exhaustive export_matrix.py fixes the supported set and parameter examples;
+	// RTLIL's checker remains responsible for each type's structural constraints.
+	if (type.in(ID($not), ID($pos), ID($buf), ID($neg), ID($barrier),
+			ID($reduce_and), ID($reduce_or), ID($reduce_xor), ID($reduce_xnor), ID($reduce_bool),
+			ID($logic_not), ID($slice), ID($lut), ID($and), ID($or), ID($xor), ID($xnor),
+			ID($shl), ID($shr), ID($sshl), ID($sshr), ID($shift), ID($shiftx),
+			ID($lt), ID($le), ID($eq), ID($ne), ID($eqx), ID($nex), ID($ge), ID($gt),
+			ID($add), ID($sub), ID($mul), ID($div), ID($mod), ID($divfloor), ID($modfloor), ID($pow),
+			ID($logic_and), ID($logic_or), ID($concat), ID($mux), ID($pmux), ID($bmux), ID($demux), ID($tribuf),
+			ID($_BUF_), ID($_NOT_), ID($_AND_), ID($_NAND_), ID($_OR_), ID($_NOR_), ID($_XOR_), ID($_XNOR_),
+			ID($_ANDNOT_), ID($_ORNOT_), ID($_MUX_), ID($_NMUX_), ID($_AOI3_), ID($_OAI3_), ID($_AOI4_), ID($_OAI4_)))
+		return CombExport::DIRECT;
+	// techmap.v owns the word-level models; simcells.v owns the large gate
+	// muxes and TBUF. macc CONFIG/packed-width constraints are checked by RTLIL.
+	if (type.in(ID($fa), ID($alu), ID($lcu), ID($macc), ID($macc_v2), ID($sop), ID($bweqx), ID($bwmux),
+			ID($_MUX4_), ID($_MUX8_), ID($_MUX16_), ID($_TBUF_)))
+		return CombExport::MAPPED;
+	return CombExport::UNSUPPORTED;
 }
 
 static void check_ports(const GraphCell &cell)
@@ -62,7 +81,11 @@ static RegisterInfo register_info(const GraphCell &cell, FfInitVals &initvals)
 	RegisterInfo info;
 	info.cell = cell.id;
 	info.features = ff;
-	info.is_latch = !ff.has_clk && FfTypeData(cell.type).has_aload;
+	// FfData normalizes constant-D latches to asynchronous reset storage.
+	// Classify identity using the original type, including clockless SR cells.
+	FfTypeData original_type(cell.type);
+	info.is_latch = !original_type.has_clk && !original_type.has_gclk &&
+			(original_type.has_aload || original_type.has_sr);
 	info.init = ff.val_init;
 	auto control = [&](const char *name, const RTLIL::SigSpec &signal, bool positive, int width) {
 		if (GetSize(signal) != width)
@@ -181,7 +204,7 @@ MonitorPlan create_monitor_plan(const RestoredAnalysis &analysis, const MonitorO
 			registers.emplace(cell.id, register_info(cell, initvals));
 		// flatten preserves source scopes as portless metadata; the Verilog
 		// backend explicitly ignores these cells. They are never observations.
-		else if (cell.node_type != NodeType::MEMORY && cell.type != ID($scopeinfo) && !supported_comb(cell.type))
+		else if (cell.node_type != NodeType::MEMORY && cell.type != ID($scopeinfo) && comb_export(cell.type) == CombExport::UNSUPPORTED)
 			cell_error(cell, "has unsupported state, side effects or Verilog export semantics");
 	}
 	std::vector<PortId> ports(graph.ports.size());

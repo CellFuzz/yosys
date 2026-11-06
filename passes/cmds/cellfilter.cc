@@ -133,7 +133,9 @@ struct CellFilterPass : public Pass {
 		SelectionStrategy strategy{filter_options.filtered() ? "region-topk" : "all", 1,
 				{{"top_k", std::to_string(filter_options.top_k)}}};
 		int module_index = 0;
-		for (RTLIL::Module *module : design->selected_modules()) {
+		auto roots = design->selected_modules();
+		StructuralDigestContext digest_context(design, roots);
+		for (RTLIL::Module *module : roots) {
 			if (module->has_memories())
 				log_cmd_error("Module %s still contains RTLIL memories; run memory_collect before cellfilter.\n", module);
 			for (RTLIL::Cell *cell : module->cells())
@@ -146,7 +148,7 @@ struct CellFilterPass : public Pass {
 			log("Built data-path graph for %s: %d nodes, %d edge cells, %d port connections.\n",
 					module, GetSize(graph.nodes), GetSize(graph.edge_cells), GetSize(graph.connections));
 			CellGraphSelection selection = graph.select_objects(filter_options);
-			batch.push_back(AnalysisSnapshot::capture(graph, selection, strategy));
+			batch.push_back(AnalysisSnapshot::capture(graph, selection, strategy, digest_context));
 			if (dot_file.is_open()) {
 				CellGraphView view = graph.create_view(selection);
 				if (filter_options.filtered())

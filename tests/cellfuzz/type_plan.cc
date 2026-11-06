@@ -3,6 +3,7 @@
 #include "passes/cmds/cellfuzz/monitor_plan.h"
 
 #include <functional>
+#include <fstream>
 #include <set>
 
 USING_YOSYS_NAMESPACE
@@ -130,6 +131,15 @@ struct TestCellFuzzTypePlan : Pass {
 	TestCellFuzzTypePlan() : Pass("test_cellfuzz_type_plan", "check typed observation sources") {}
 	void execute(std::vector<std::string> args, RTLIL::Design *design) override
 	{
+		if (GetSize(args) == 3 && args[1] == "comb-types") {
+			json11::Json::array types;
+			for (const auto &entry : StaticCellTypes::builder.cells)
+				if (entry.features.is_evaluable) types.push_back(entry.type.str());
+			std::ofstream file(args[2]);
+			file << json11::Json(types).dump();
+			log_assert(bool(file));
+			return;
+		}
 		if (GetSize(args) == 2 && args[1] == "fixture") {
 			fixture(design);
 			return;

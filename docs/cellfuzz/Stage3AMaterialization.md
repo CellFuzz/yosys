@@ -6,6 +6,8 @@
 
 ## 目标、接口与边界
 
+2026-11-06 修正：`materialized` 的成功边界是 RTLIL 和 manifest；最终 Verilog 还必须经过插装后的 `opt_clean; check -assert; write_verilog` 及新进程回读/lint。最终业务/观测接口和值的验收见 [主设计](InstrumentDesign.md) 与 [修复手册 §4](ReviewFixGuide.md#4-f2统一支持范围与导出流程)。失败产物不向下游交付；下列原阶段验收仅保留为历史事实。
+
 `cellinstrument -manifest monitor.json` 开始正式物化；`-plan-only` 继续输出只读 planned 契约。开关默认值保持 memory on/off、块宽 256、前缀 cf。已选 memory 请求未实现能力仍明确拒绝，off/off 仅物化普通观测项。
 
 1. 从已校验 item 原 SigSpec 的逻辑位序连接 `<prefix>_obs_*` 顶层输出。块可共享、跨 item，末块实际位宽；Q 直接旁路，空计划不创建端口。只增加 wire 和连续赋值，不修改原 cell、控制或初始化。
@@ -73,7 +75,7 @@ write_verilog instrumented.v
 | 冻结原图 | plan-only 后正式物化，graph/items/selection/view/registers/transport/analysis 逐字段相同；新接口与实际方向、位宽、编号一一对应，原 module port 次序保持 |
 | 原功能与状态保持 | 将物化后模块 clone，只剥离声明的 output/connection/成功标记 delta，完整结构摘要必须等于原模块，包含所有 cell 参数、连接、控制与初始化；graph.v 的原功能输出经 miter/SAT 三个时序步验证等价 |
 | 类型与位段 | 专用多输出/全 mux 选择、143 种正式 FF/latch、513 bit 宽向量等三组夹具，各自覆盖块宽 1/8/32/33/64/65/256/1024；直接 Q、别名、重复 bit、X/Z、跨块和尾块保持；独立空计划无新接口 |
-| Verilog 可用性 | graph.v 直接 write_verilog 后读回并 hierarchy/proc/check；FF 全表直接行为导出并回读；多输出/门级 mux 夹具先核对原始物化，再用 techmap、带 -autoproc 的 simcells 展开后导出与回读 |
+| Verilog 可用性 | graph.v 直接 write_verilog 后读回并 hierarchy/proc/check；FF 全表直接行为导出并回读；多输出/门级 mux 夹具先核对原始物化 |
 | 生命周期 | 成功时 batch 已失效且模块有标记；首次新连接的 Monitor 回调确认此前已失效且尚无成功标记；重复正式物化、正式物化后 plan-only、重跑 cellfilter 后再次物化均拒绝；空计划也消耗并标记 |
 | 修改前拒绝 | 错误位段、非法源 offset、WIDTH_LIMIT、wire/cell/参数冲突、保留字/前缀/未知选项、缺失目录和非普通文件目标；同进程确认设计与快照不变，之后仍可 plan-only |
 | 原结构致命错误 | 设置 `$not.Y_WIDTH=7` 而端口仍为 8 bit，真实 CLI 子进程应在文件准备前退出，保留旧产物且无临时文件；该测试先捕获并复现了审查问题，再修复检查顺序 |

@@ -148,6 +148,8 @@ static void test_stale_and_malformed()
 	auto record = json11::Json::parse(snapshot.encode(), error).object_items();
 	record["version"] = 999;
 	expect_error([&]() { AnalysisSnapshot::decode(json11::Json(record).dump()); });
+	record["version"] = 1;
+	expect_error([&]() { AnalysisSnapshot::decode(json11::Json(record).dump()); });
 	record["version"] = AnalysisSnapshot::version;
 	record["analysis_id"] = "corrupt";
 	expect_error([&]() { AnalysisSnapshot::decode(json11::Json(record).dump()); });
@@ -166,6 +168,8 @@ static void test_stale_and_malformed()
 	design.scratchpad_set_string(SnapshotStore::key, "not a batch");
 	expect_error([&]() { SnapshotStore::load(&design, module->name); });
 	design.scratchpad_set_string(SnapshotStore::key, "{\"version\":999,\"modules\":[]}");
+	expect_error([&]() { SnapshotStore::load(&design, module->name); });
+	design.scratchpad_set_string(SnapshotStore::key, "{\"version\":1,\"modules\":[]}");
 	expect_error([&]() { SnapshotStore::load(&design, module->name); });
 	SnapshotStore::publish(&design, {snapshot});
 	expect_error([&]() { SnapshotStore::restore(&design, RTLIL::escape_id("missing")); });
@@ -235,6 +239,94 @@ static void test_digest_and_roundtrip()
 	expect_error([&]() { SnapshotStore::load(&design, module->name); });
 }
 
+static void test_shared_digest_context()
+{
+	RTLIL::Design design, reversed;
+	std::vector<std::string> names{"root", "left", "right", "leaf", "cycle1", "cycle2", "self", "isolated", "unrelated"};
+	for (auto name : names) design.addModule(RTLIL::escape_id(name));
+	for (auto it = names.rbegin(); it != names.rend(); ++it) reversed.addModule(RTLIL::escape_id(*it));
+	std::vector<std::pair<std::string, std::string>> edges{{"root", "left"}, {"root", "right"},
+			{"left", "leaf"}, {"right", "leaf"}, {"root", "cycle1"}, {"cycle1", "cycle2"},
+			{"cycle2", "cycle1"}, {"cycle2", "leaf"}, {"self", "self"}, {"root", "left"}};
+	for (auto current : {&design, &reversed}) {
+		int index = 0;
+		for (const auto &edge : edges)
+			current->module(RTLIL::escape_id(edge.first))->addCell(RTLIL::escape_id("u" + std::to_string(index++)), RTLIL::escape_id(edge.second));
+	}
+	auto root = design.module(RTLIL::escape_id("root"));
+	auto leaf = design.module(RTLIL::escape_id("leaf"));
+	auto isolated = design.module(RTLIL::escape_id("isolated"));
+	auto self = design.module(RTLIL::escape_id("self"));
+	std::vector<RTLIL::Module *> roots{root, self, isolated};
+	std::map<std::string, std::string> hashes;
+	{
+		StructuralDigestContext context(&design, roots);
+		log_assert(context.local_record_count() == 8); // unrelated is unreachable
+		for (auto module : roots) {
+			hashes[module->name.str()] = context.digest(module);
+			log_assert(context.digest(module) == structural_digest(module));
+			log_assert(context.digest(module) == structural_digest(reversed.module(module->name)));
+			CellGraph graph(module); graph.build();
+			log_assert(AnalysisSnapshot::capture(graph, graph.select_objects({}), {}, context).structure_digest == context.digest(module));
+		}
+		log_assert(context.local_record_count() == 8); // repeated roots do no serialization
+		expect_error([&]() { context.digest(leaf); }); // reachable is not necessarily a root
+		expect_error([&]() { context.digest(reversed.module(root->name)); });
+		CellGraph other(reversed.module(root->name)); other.build();
+		expect_error([&]() { AnalysisSnapshot::capture(other, other.select_objects({}), {}, context); });
+		expect_error([&]() { StructuralDigestContext invalid(&design, {other.module}); });
+	}
+	// A changed caller must not invalidate a child. Only outgoing dependency
+	// hashes participate; no incoming edges or design-global version is used.
+	auto child_before = structural_digest(leaf);
+	root->attributes[ID::src] = RTLIL::Const("changed caller");
+	log_assert(child_before == structural_digest(leaf));
+	root->attributes.clear();
+	auto unrelated = design.module(RTLIL::escape_id("unrelated"));
+	unrelated->attributes[ID::src] = RTLIL::Const("unrelated change");
+	log_assert(hashes.at(root->name.str()) == structural_digest(root));
+	auto cycle1 = design.module(RTLIL::escape_id("cycle1")), cycle2 = design.module(RTLIL::escape_id("cycle2"));
+	auto cycle1_before = structural_digest(cycle1), cycle2_before = structural_digest(cycle2);
+	log_assert(cycle1_before != cycle2_before); // root identity inside one SCC
+	leaf->attributes[ID::init] = RTLIL::Const(1);
+	log_assert(hashes.at(root->name.str()) != structural_digest(root));
+	log_assert(cycle1_before != structural_digest(cycle1) && cycle2_before != structural_digest(cycle2));
+	log_assert(hashes.at(self->name.str()) == structural_digest(self));
+	log_assert(hashes.at(isolated->name.str()) == structural_digest(isolated));
+	leaf->attributes.clear();
+	log_assert(hashes.at(root->name.str()) == structural_digest(root));
+	// All these changes live only in a dependency. Binding the unchanged root
+	// graph must nevertheless reject its saved snapshot after each mutation.
+	auto a = leaf->addWire(RTLIL::escape_id("a"), 4), y = leaf->addWire(RTLIL::escape_id("y"), 4);
+	auto logic = leaf->addNot(RTLIL::escape_id("logic"), a, y);
+	auto process = leaf->addProcess(RTLIL::escape_id("priority"));
+	process->root_case.actions = {{y, RTLIL::Const(1, 4)}, {y, RTLIL::Const(2, 4)}};
+	CellGraph root_graph(root); root_graph.build();
+	auto snapshot = AnalysisSnapshot::capture(root_graph, root_graph.select_objects({}), {});
+	auto stale = [&]() { expect_error([&]() { snapshot.restore(&design); }); };
+	leaf->parameter_default_values[ID::WIDTH] = RTLIL::Const(9); stale(); leaf->parameter_default_values.clear();
+	a->attributes[ID::init] = RTLIL::Const(3, 4); stale(); a->attributes.clear();
+	RTLIL::SigSpec reversed_bits;
+	for (int i = 3; i >= 0; i--) reversed_bits.append(RTLIL::SigBit(a, i));
+	logic->setPort(ID::A, reversed_bits); stale(); logic->setPort(ID::A, a);
+	std::reverse(process->root_case.actions.begin(), process->root_case.actions.end()); stale();
+	std::reverse(process->root_case.actions.begin(), process->root_case.actions.end());
+	snapshot.restore(&design);
+	// A deep chain and all its roots: counts, not noisy wall-clock thresholds,
+	// establish bounded local work. Duplicate instances above still count once.
+	RTLIL::Design chain;
+	std::vector<RTLIL::Module *> modules;
+	for (int i = 0; i < 4096; i++) modules.push_back(chain.addModule(RTLIL::escape_id("m" + std::to_string(i))));
+	for (int i = 1; i < GetSize(modules); i++) modules[i-1]->addCell(RTLIL::escape_id("u"), modules[i]->name);
+	StructuralDigestContext context(&chain, modules);
+	log_assert(context.local_record_count() == modules.size());
+	for (auto module : modules) {
+		CellGraph graph(module); graph.build();
+		log_assert(!AnalysisSnapshot::capture(graph, graph.select_objects({}), {}, context).structure_digest.empty());
+	}
+	log_assert(context.local_record_count() == modules.size());
+}
+
 struct TestCellFuzzSnapshotPass : Pass {
 	TestCellFuzzSnapshotPass() : Pass("test_cellfuzz_snapshot", "test CellFuzz session snapshots") {}
 	void execute(std::vector<std::string> args, RTLIL::Design *design) override
@@ -280,6 +372,7 @@ struct TestCellFuzzSnapshotPass : Pass {
 		test_owned_records_and_rebinding(false);
 		test_stale_and_malformed();
 		test_dependencies_and_processes();
+		test_shared_digest_context();
 	}
 } TestCellFuzzSnapshotPass;
 

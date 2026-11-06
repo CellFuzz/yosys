@@ -46,6 +46,14 @@ struct CellInstrumentPass : Pass {
 		log("\n");
 		log("Run hierarchy, proc, memory_collect and flatten before cellfilter.\n");
 		log("Selection options belong to cellfilter and are not accepted here.\n");
+		log("For self-contained behavioral Verilog, run AFTER cellinstrument:\n");
+		log("    write_rtlil instrumented.il   # optional diagnostic checkpoint\n");
+		log("    opt_clean\n");
+		log("    check -assert\n");
+		log("    write_verilog instrumented.v\n");
+		log("Re-read with hierarchy -check -top <top>; proc; check -assert, and lint.\n");
+		log("Materialized covers RTLIL/manifest publication, not later export success.\n");
+		log("Publish a fresh output directory only after all final checks succeed.\n");
 		log("\n");
 	}
 

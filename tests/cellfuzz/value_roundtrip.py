@@ -89,16 +89,20 @@ class Roundtrip:
                            check=True, timeout=120)
             self.plugins += ["-m", str(plugin)]
 
-    def run(self, commands):
+    def run(self, commands, error=None):
         self.serial += 1
         script = self.work / f"run{self.serial}.ys"
         script.write_text(commands.replace("; ", ";\n") + "\n")
         result = subprocess.run([YOSYS, "-Q", "-T", "-q", *self.plugins, "-s", str(script)],
                                 cwd=HERE, capture_output=True, text=True, timeout=120)
-        assert result.returncode == 0, f"{script}:\n{result.stdout[-3000:]}\n{result.stderr}"
+        if error is None:
+            assert result.returncode == 0, f"{script}:\n{result.stdout[-3000:]}\n{result.stderr}"
+        else:
+            assert result.returncode != 0 and error in result.stderr, (script, result.stderr)
+            print(f"  expected failure: exit {result.returncode}, {error}", flush=True)
         return result.stdout
 
-    def prepare(self, name, setup, top, options="", selection="", mapped=False, gold_verilog=False):
+    def prepare(self, name, setup, top, options="", selection="", gold_verilog=False):
         directory = self.work / name
         directory.mkdir()
         reportfile = directory / "monitor.json"
@@ -106,7 +110,7 @@ class Roundtrip:
                  f"cellfilter {selection}; cellinstrument -plan-only -manifest {directory}/planned.json {options}; "
                  f"test_cellfuzz_materialize success {reportfile} cellinstrument -manifest {reportfile} {options}; "
                  f"check -assert; write_rtlil {directory}/actual.il; " +
-                 ("techmap; techmap -autoproc -map +/simcells.v; opt_clean; " if mapped else "") +
+                 "opt_clean; check -assert; " +
                  f"write_verilog {directory}/actual.v")
         report = json.loads(reportfile.read_text())
         planned = json.loads((directory / "planned.json").read_text())
@@ -127,7 +131,7 @@ class Roundtrip:
         # the exported/reimported Verilog interface, including mapped cells.
         self.run(gold + f"read_rtlil {directory}/actual.il; rename {top} gate; "
                  f"test_cellfuzz_reference gate {reportfile} gate item_; write_rtlil {directory}/formal.il")
-        value_gold = gold + ("techmap; techmap -autoproc -map +/simcells.v; opt_clean; " if mapped else "")
+        value_gold = gold + "opt_clean; "
         if gold_verilog:
             # sim requires asynchronous memory reads; memory_nordff cannot
             # directly extract a collected read port with both resets. Expose
@@ -138,6 +142,21 @@ class Roundtrip:
         self.run(value_gold + f"read_verilog {directory}/actual.v; rename {top} gate; setattr -mod -unset top; hierarchy -check; proc; "
                  f"check -assert; write_rtlil {directory}/pair.il")
         original = json.loads((directory / "original.json").read_text())["modules"][top]
+        self.run(f"read_verilog {directory}/actual.v; hierarchy -check -top {top}; proc; check -assert; "
+                 f"write_json {directory}/final.json")
+        final_ports = json.loads((directory / "final.json").read_text())["modules"][top]["ports"]
+        expected = {name: (port["direction"], len(port["bits"])) for name, port in original["ports"].items()}
+        expected.update({p["name"]: ("output", p["width"]) for p in report["transport"]["ports"]})
+        for memory in report["memories"]:
+            if memory["content_query"]:
+                query = memory["query"]
+                expected[query["address_port"]] = ("input", query["address_width"])
+                expected[query["data_port"]] = ("output", query["data_width"])
+        assert {name: (p["direction"], len(p["bits"])) for name, p in final_ports.items()} == expected
+        lint = subprocess.run(["verilator", "--lint-only", "--top-module", top, "-Wno-fatal", str(directory / "actual.v")],
+                              capture_output=True, text=True, timeout=60)
+        (directory / "lint.log").write_text(lint.stdout + lint.stderr)
+        assert lint.returncode == 0, lint.stderr
         print(f"{name}: {len(report['items'])} items, {len(report['registers'])} registers, "
               f"{report['transport']['total_bits']} bits", flush=True)
         return directory, report, original
@@ -321,13 +340,15 @@ def main():
         assert len(edges[1]["registers"]) == 9
         samples, outputs = suite.simulate(edges, register_vectors())
         check_registers(samples, outputs)
-        types = suite.prepare("types", "test_cellfuzz_type_plan fixture", "types", options="-chunk-width 8", mapped=True)
+        types = suite.prepare("types", "test_cellfuzz_type_plan fixture", "types", options="-chunk-width 8")
         vectors = [dict(data=rng.getrandbits(65), clock=i % 2, control=(i // 2) % 2) for i in range(48)]
         samples, _ = suite.simulate(types, vectors)
         selectors = [item for item in types[1]["items"] if item["role"] == "mux_select"]
         assert len(selectors) == 16
         assert any("x" in values[f"g_item{item['monitor_id']}"] and "z" in values[f"g_item{item['monitor_id']}"]
                    for _, values in samples for item in selectors)
+        from export_matrix import check_export_matrix
+        check_export_matrix(suite, suite.work)
         limited = suite.prepare("topk", controller_setup, "ibex_controller", selection="-nodes none -topk 1", options="-chunk-width 64")
         assert 0 < len(limited[1]["items"]) < len(controller[1]["items"])
         suite.simulate(limited, vectors_controller(ports, rng))

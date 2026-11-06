@@ -98,6 +98,34 @@ def main():
         subprocess.run([CONFIG, "--build", str(plugin), f"-I{HERE.parent.parent}", str(HERE / "memory_access.cc")],
                        check=True, timeout=120)
         suite.plugins += ["-m", str(plugin)]
+        for variant, diagnostic in (("query-control", "raw query connection mismatch: RD_EN"),
+                                    ("init", "raw query parameter mismatch: INIT"),
+                                    ("business-mask", "raw query parameter mismatch: RD_COLLISION_X_MASK")):
+            suite.run("test_cellfuzz_memory fixture sync; cellfilter; "
+                      f"test_cellfuzz_materialize raw-fault {variant} {work}/fault.json", error=diagnostic)
+        # Handwritten mem[5:7], INIT 11/22/33, nibble enables, synchronous
+        # business read. Expected words/timing do not come from the manifest.
+        nibble = suite.prepare("nibble", "read_verilog query_nibble.v; hierarchy -top query_nibble; "
+                               "proc; memory_dff; memory_collect; opt_clean", "query_nibble", options="-mem-content query", gold_verilog=True)
+        query = nibble[1]["memories"][0]["query"]
+        vectors = [dict(clk=clk, address=address, data=0xab, enable=enable,
+                        **{query["address_port"]: query_address})
+                   for clk,address,enable,query_address in ((0,6,0,5),(0,6,0,6),(0,6,0,7),(0,6,1,6),
+                                                           (1,6,1,6),(0,6,0,6),(1,6,0,6),(0,6,0,6))]
+        samples, outputs = suite.simulate(nibble, vectors, SIM_PREPARE + " setundef -undriven -undef;")
+        for timestamp, values in samples:
+            tick = int(values["tick"], 2)
+            expected_query = (0x11,0x22,0x33,0x22,0x2b,0x2b,0x2b,0x2b)[tick]
+            assert values["a_query0"] == format(expected_query, "08b"), ("nibble query", tick, timestamp)
+            if tick >= 4:
+                expected_q = 0x22 if tick < 6 else 0x2b
+                assert values[f"a_func{outputs.index('q')}"] == format(expected_q, "08b"), ("nibble business Q", tick)
+        # Three bounded SAT steps, fixed word 6 / low nibble b, no high-nibble
+        # write. This establishes only this constrained three-step example.
+        suite.run(f"read_verilog {nibble[0]}/actual.v; hierarchy -top query_nibble; proc; memory_map; "
+                  f"opt_clean; sat -seq 3 -set address 6 -set data 171 -set {query['address_port']} 6 "
+                  "-set-at 1 enable 1 -set-at 2 enable 0 -set-at 3 enable 0 "
+                  f"-prove-skip 2 -prove q 43 -prove {query['data_port']} 43 -verify")
         setup = "test_cellfuzz_memory fixture sync"
         matrix = []
         for access, content in (("on", "off"), ("off", "off"), ("off", "query"), ("on", "query")):
@@ -175,6 +203,18 @@ def main():
             suite.run("test_cellfuzz_memory fixture sync; cellfilter; "
                       f"test_cellfuzz_materialize preflight {work}/old.json cellinstrument -manifest {destination} -mem-content query; "
                       f"cellinstrument -plan-only -manifest {work}/usable.json")
+        for name in ("cf_mem_0000_addr", "cf_mem_0000_data"):
+            source = work / "memid.v"
+            source.write_text(f"module top(input [1:0] a, output [7:0] q); reg [7:0] {name}[0:3]; "
+                              f"initial {name}[0]=8'h12; assign q={name}[a]; endmodule\n")
+            for mode in ("", "-plan-only"):
+                (work / "old.json").write_text("previous artifact\n")
+                suite.run(f"read_verilog {source}; hierarchy -top top; proc; memory_collect; "
+                          f"cd top; rename {name} arrcell; cd ..; cellfilter; "
+                          f"test_cellfuzz_materialize preflight {work}/old.json cellinstrument {mode} "
+                          f"-manifest {work}/old.json -mem-access off -mem-content query; "
+                          f"cellinstrument -plan-only -prefix safe -mem-content query -manifest {work}/usable.json")
+                assert (work / "old.json").read_text() == "previous artifact\n"
         for mode in ("interrupt", "corrupt", "rename", "query-interrupt", "query-corrupt", "query-rename"):
             (work / "old.json").write_text("previous artifact\n")
             suite.run("test_cellfuzz_memory fixture sync; cellfilter; "

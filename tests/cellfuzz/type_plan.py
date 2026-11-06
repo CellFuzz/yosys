@@ -6,6 +6,7 @@ import resource
 import signal
 import subprocess
 import tempfile
+from register_semantics import check_register_semantics
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
@@ -53,6 +54,7 @@ with tempfile.TemporaryDirectory(prefix="cellfuzz-types-") as tmp:
     ff_plan = json.loads((work / "plan.json").read_text())
     assert len(ff_plan["registers"]) > 100
     ff_count = len(ff_plan["registers"])
+    check_register_semantics(run, work)
     # The Verilog backend must behaviorally expand these FFs. Read the export
     # back as Verilog so unresolved internal FF instantiations cannot pass.
     run("test_cellfuzz_type_plan fixture-ff-library; cellfilter; " + plan_command +
@@ -136,6 +138,11 @@ with tempfile.TemporaryDirectory(prefix="cellfuzz-types-") as tmp:
                                ("register-width", "invalid register control width"),
                                ("unsupported", "unsupported state")):
         run(fixture + f"test_cellfuzz_type_plan poison {poison}; cellfilter; " + plan_command, error=diagnostic)
+
+    # Omitted observations do not hide unsupported semantics in the top.
+    for poison, diagnostic in (("unknown", "unknown semantics"), ("unsupported", "unsupported state")):
+        run(fixture + f"test_cellfuzz_type_plan poison {poison}; cellfilter; " +
+            "test_cellfuzz_type_plan empty-selection; " + plan_command, error=diagnostic)
 
     # Failures preserve a valid batch and a pre-existing artifact in the same
     # process; a second plan must still be usable after the failed command.

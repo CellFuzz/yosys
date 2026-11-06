@@ -198,11 +198,18 @@ static void validate_selection(const CellGraph &graph, const CellGraphSelection 
 AnalysisSnapshot AnalysisSnapshot::capture(const CellGraph &graph, const CellGraphSelection &selection,
 		const SelectionStrategy &strategy)
 {
+	StructuralDigestContext context(graph.module->design, {graph.module});
+	return capture(graph, selection, strategy, context);
+}
+
+AnalysisSnapshot AnalysisSnapshot::capture(const CellGraph &graph, const CellGraphSelection &selection,
+		const SelectionStrategy &strategy, const StructuralDigestContext &context)
+{
 	validate_selection(graph, selection);
 	require(!strategy.id.empty() && strategy.version > 0, "has an invalid strategy");
 	AnalysisSnapshot result;
 	result.module_name = graph.module_info.name.str();
-	result.structure_digest = structural_digest(graph.module);
+	result.structure_digest = context.digest(graph.module);
 	result.build_options = graph.build_options;
 	result.strategy = strategy;
 	result.selection = selection;

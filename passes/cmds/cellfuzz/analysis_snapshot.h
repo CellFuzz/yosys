@@ -15,6 +15,21 @@ namespace CellFuzz {
 // in place. SigSpec bit order, repeated bits and all constant states matter.
 std::string structural_digest(RTLIL::Module *module);
 
+// Command-local, read-only computation for a fixed Design and root set. Never
+// retain this across mutation, design switching, or snapshot restoration.
+class StructuralDigestContext {
+	RTLIL::Design *design;
+	std::map<std::string, RTLIL::Module *> roots;
+	std::map<std::string, std::string> digests;
+	size_t local_records = 0;
+
+public:
+	StructuralDigestContext(RTLIL::Design *design, const std::vector<RTLIL::Module *> &roots);
+	std::string digest(RTLIL::Module *module) const;
+	// Internal accounting for tests; incremented at the serialization site.
+	size_t local_record_count() const { return local_records; }
+};
+
 struct SelectionStrategy {
 	std::string id = "all";
 	int version = 1;
@@ -27,7 +42,7 @@ struct RestoredAnalysis;
 // The private graph record retains original IDs, port bindings and connections
 // so restoration cannot accidentally rescore or depend on dictionary order.
 struct AnalysisSnapshot {
-	static constexpr int version = 1;
+	static constexpr int version = 2;
 	std::string module_name;
 	std::string structure_digest;
 	std::string analysis_id;
@@ -37,6 +52,8 @@ struct AnalysisSnapshot {
 
 	static AnalysisSnapshot capture(const CellGraph &graph, const CellGraphSelection &selection,
 			const SelectionStrategy &strategy);
+	static AnalysisSnapshot capture(const CellGraph &graph, const CellGraphSelection &selection,
+			const SelectionStrategy &strategy, const StructuralDigestContext &context);
 	std::string encode() const;
 	static AnalysisSnapshot decode(const std::string &encoded);
 	// Missing, stale or malformed records are command errors asking the caller

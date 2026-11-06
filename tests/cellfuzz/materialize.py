@@ -32,7 +32,8 @@ with tempfile.TemporaryDirectory(prefix="cellfuzz-materialize-") as tmp:
     command = f"cellinstrument -manifest {work}/monitor.json"
     verify = f"test_cellfuzz_materialize success {work}/monitor.json "
     run(prepare + f"write_rtlil {work}/original.il; cellinstrument -plan-only -manifest {work}/plan.json; " + verify + command +
-        f"; check -assert; write_json {work}/design.json; write_rtlil {work}/instrumented.il; write_verilog {work}/design.v")
+        f"; check -assert; write_json {work}/design.json; write_rtlil {work}/instrumented.il; "
+        f"opt_clean; check -assert; write_verilog {work}/design.v")
     planned = json.loads((work / "plan.json").read_text())
     materialized = json.loads((work / "monitor.json").read_text())
     assert materialized["status"] == "materialized"
@@ -66,10 +67,8 @@ with tempfile.TemporaryDirectory(prefix="cellfuzz-materialize-") as tmp:
             run(setup + verify + command + f" -chunk-width {width}")
     for setup in ("test_cellfuzz_type_plan fixture; cellfilter; ",
                   "test_cellfuzz_type_plan fixture-ff-library; cellfilter; "):
-        # Internal arithmetic cells such as $lcu have official techmap models
-        # but are not all inlined by write_verilog. Verify the raw bypass first,
-        # then use the normal mapping flow before behavioral Verilog readback.
-        mapping = "techmap; techmap -autoproc -map +/simcells.v; opt_clean; " if "fixture;" in setup else ""
+        # Use the same documented post-instrumentation flow for every type.
+        mapping = "opt_clean; check -assert; "
         run(setup + verify + command + f"; check -assert; {mapping}write_verilog {work}/types.v")
         run(f"read_verilog {work}/types.v; hierarchy -check; proc; check -assert")
     run("test_cellfuzz_manifest fixture; cellfilter; test_cellfuzz_manifest empty; " + verify + command)
@@ -103,6 +102,38 @@ with tempfile.TemporaryDirectory(prefix="cellfuzz-materialize-") as tmp:
             f"test_cellfuzz_materialize preflight {work}/monitor.json " + command)
     for option in ("-prefix module", "-prefix __debug", "-prefix bad-name", "-nodes all"):
         run(prepare + f"test_cellfuzz_materialize preflight {work}/monitor.json " + command + " " + option)
+
+    # MEMID owns the exported array name even when its collected cell has
+    # another name, is omitted from the graph, or has observation disabled.
+    for name, options in (("cf_obs_0000", ""), ("cf_obs_0000", "-mem-access off"),
+                          ("cf_obs_0000", "-nodes none"),
+                          ("cf_mem_0000_addr", "-mem-access off -mem-content query"),
+                          ("cf_mem_0000_data", "-mem-access off -mem-content query")):
+        source = work / "collision.v"
+        source.write_text(f"module top(input clk, input [1:0] a, input [7:0] d, output [7:0] q);\n"
+                          f"reg [7:0] {name} [0:3]; always @(posedge clk) {name}[a] <= d;\n"
+                          f"assign q = d ^ {name}[a]; endmodule\n")
+        nodes = "-nodes none" if options == "-nodes none" else ""
+        instrument_options = "" if nodes else options
+        setup = (f"read_verilog {source}; hierarchy -top top; proc; memory_collect; "
+                 f"cd top; rename {name} arrcell; cd ..; cellfilter {nodes}; ")
+        for mode in ("", "-plan-only"):
+            (work / "monitor.json").write_text("previous artifact\n")
+            result = run(setup + f"write_rtlil {work}/before.il; "
+                         f"test_cellfuzz_materialize preflight {work}/monitor.json " + command +
+                         f" {instrument_options} {mode}; write_rtlil {work}/after.il; "
+                         f"cellinstrument -plan-only -prefix safe -manifest {work}/safe.json {instrument_options}")
+            assert name in result.stderr and "arrcell" in result.stderr and "MEMID" in result.stderr
+            assert (work / "before.il").read_bytes() == (work / "after.il").read_bytes()
+            assert (work / "monitor.json").read_text() == "previous artifact\n"
+            assert not list(work.glob("*.tmp.*"))
+        run(setup + f"cellinstrument -prefix safe -manifest {work}/safe.json {instrument_options}; "
+            f"opt_clean; check -assert; write_verilog {work}/safe.v")
+        run(f"read_verilog {work}/safe.v; hierarchy -check -top top; proc; check -assert")
+        subprocess.run(["verilator", "--lint-only", "--top-module", "top", "-Wno-fatal", str(work / "safe.v")],
+                       check=True, capture_output=True, timeout=60)
+    run(prepare.replace("cellfilter;", "cd graph; rename clk cf; cd ..; cellfilter;") +
+        f"cellinstrument -plan-only -manifest {work}/prefix-only.json")
 
     def limit_output():
         signal.signal(signal.SIGXFSZ, signal.SIG_IGN)

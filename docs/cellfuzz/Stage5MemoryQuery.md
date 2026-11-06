@@ -2,6 +2,8 @@
 
 本阶段按已确认的 InstrumentDesign §5.2 和 InstrumentImplementationPlan §7 实现。默认仍为业务观测 on、内容查询 off；仅已选 memory 的 query 开关生效。
 
+2026-11-06 审查修复：普通及 query 接口统一排除所有原 memory `MEMID`。结构 oracle 现直接保存原始 `$mem_v2` packed 参数/连接，逐项计算新增读口、关系 mask 和地址补零，gold 不再调用 `Mem::emit()`；legacy 迁移的 reset/init/透明性/优先级在测试中显式推导。query 最小位宽来自原始 OFFSET/SIZE，manifest 仅用于定位接口。`query_nibble.v` 的手写初始化/写掩码及时序检查，以及限定输入和约束的三步 SAT，均要求最终 Q/query 为 `0x2b`。query 控制、INIT、业务 mask 的三个定点故障必须被 raw 断言捕获。原阶段验证记录保留，下述原 gold 归一化不能视为独立语义证明；当前证据见 [修复验收记录](ReviewFixResults.md)。
+
 ## 契约与实现计划
 
 每个查询 memory 使用按原 cell 名排序的 memory 序号，创建 `<prefix>_mem_NNNN_addr` 输入与 `_data` 单字输出。query 独立于普通 transport，不进入原 graph、items 或业务 read_ports。manifest 的 content_query 表示是否启用，query 记录端口名/宽度、无符号逻辑地址编码、有效半开区间、原业务读口后的 logical/packed 查询编号。未启用时 query 为 null。
